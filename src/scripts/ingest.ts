@@ -4,10 +4,12 @@ import { throttling } from "@octokit/plugin-throttling";
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { repos, type NewRepo } from "@/db/schema";
+import { getEmbedder } from "@/lib/embeddings";
 
 const MAX_REPOS = 200;
 const MIN_STARS = 100;
 const README_MAX_CHARS = 3000;
+const EMBED_README_CHARS = 500;
 
 // Stop ingesting when this many core-requests are left.
 const RATE_LIMIT_FLOOR = 5;
@@ -75,7 +77,11 @@ type SearchRepoItem = Awaited<
   ReturnType<Octokit["rest"]["search"]["repos"]>
 >["data"]["items"][number];
 
-function toNewRepo(item: SearchRepoItem, readmeText: string | null): NewRepo {
+function toNewRepo(
+  item: SearchRepoItem,
+  readmeText: string | null,
+  embedding: number[] | null,
+): NewRepo {
   const license = item.license?.spdx_id ?? null;
   const topics = item.topics ?? [];
   return {
@@ -88,6 +94,7 @@ function toNewRepo(item: SearchRepoItem, readmeText: string | null): NewRepo {
     language: item.language ?? null,
     license,
     readme_text: readmeText,
+    embedding: embedding ? JSON.stringify(embedding) : null,
     topics: JSON.stringify(topics),
     pushed_at: item.pushed_at ?? new Date().toISOString(),
     ingested_at: new Date().toISOString(),
@@ -150,6 +157,7 @@ function upsertRepo(db: ReturnType<typeof getDb>, repo: NewRepo): void {
         language: repo.language,
         license: repo.license,
         readme_text: repo.readme_text,
+        embedding: repo.embedding,
         topics: repo.topics,
         pushed_at: repo.pushed_at,
         ingested_at: repo.ingested_at,
@@ -174,6 +182,10 @@ async function main(): Promise<void> {
   const before = countRepos(db);
   console.log(`[start] ${before} repos currently in DB`);
 
+  console.log("[embed] loading model Xenova/all-MiniLM-L6-v2...");
+  const embedder = await getEmbedder();
+  console.log("[embed] model loaded");
+
   await checkRateLimit(octokit, "before search");
   const items = await searchRepos(octokit);
   console.log(`[search] got ${items.length} repos`);
@@ -181,6 +193,7 @@ async function main(): Promise<void> {
   let inserted = 0;
   let updated = 0;
   let readmeCount = 0;
+  let embeddingCount = 0;
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
@@ -193,21 +206,28 @@ async function main(): Promise<void> {
     const readme = await fetchReadme(octokit, owner, name);
     if (readme) readmeCount++;
 
+    // Build the text to embed: description + first 500 chars of the README.
+    const desc = item.description ?? "";
+    const readmeSnippet = readme ? readme.slice(0, EMBED_README_CHARS) : "";
+    const embedText = `${desc}\n${readmeSnippet}`.trim();
+    const embedding = embedText ? await embedder.embed(embedText) : null;
+    if (embedding && embedding.length > 0) embeddingCount++;
+
     const existed = db.select().from(repos).where(eq(repos.id, String(item.id))).get();
-    upsertRepo(db, toNewRepo(item, readme));
+    upsertRepo(db, toNewRepo(item, readme, embedding));
     if (existed) updated++;
     else inserted++;
 
     if ((i + 1) % 20 === 0) {
       console.log(
-        `[ingest] ${i + 1}/${items.length} processed (readmes: ${readmeCount})`,
+        `[ingest] ${i + 1}/${items.length} processed (readmes: ${readmeCount}, embeddings: ${embeddingCount})`,
       );
     }
   }
 
   const after = countRepos(db);
   console.log(
-    `[done] inserted=${inserted} updated=${updated} readme-filled=${readmeCount}/${items.length}`,
+    `[done] inserted=${inserted} updated=${updated} readme-filled=${readmeCount}/${items.length} embedding-filled=${embeddingCount}/${items.length}`,
   );
   console.log(`[done] DB now has ${after} repos (was ${before})`);
 }

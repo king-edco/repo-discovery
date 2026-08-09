@@ -35,11 +35,18 @@ function createDb(): DB {
       language TEXT,
       license TEXT,
       readme_text TEXT,
+      embedding TEXT,
       topics TEXT NOT NULL,
       pushed_at TEXT NOT NULL,
       ingested_at TEXT NOT NULL
     );
   `);
+
+  // Add the embedding column to pre-existing tables (no-op if present).
+  const cols = sqlite.prepare("PRAGMA table_info(repos)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "embedding")) {
+    sqlite.exec("ALTER TABLE repos ADD COLUMN embedding TEXT;");
+  }
 
   return db;
 }
