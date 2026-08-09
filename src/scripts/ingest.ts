@@ -16,12 +16,12 @@ const EMBED_README_CHARS = 500;
 const SEARCH_PER_PAGE = 100;
 const SEARCH_MAX_PAGES = 10; // 10 x 100 = 1000 results cap per query
 
-// README fetching via the core API. GitHub's secondary (abuse-detection)
-// rate limit trips easily on bursts, so we fetch READMEs sequentially with
-// a small inter-request delay rather than concurrently. This is slower but
-// keeps multi-thousand-repo runs stable across several minutes.
-const README_CONCURRENCY = 1;
-const README_FETCH_DELAY_MS = 300;
+// README fetching via the core API. We run a bounded pool of concurrent
+// requests (concurrency 8) for throughput; the throttling plugin handles
+// automatic back-off if GitHub's primary or secondary rate limits bite.
+const README_CONCURRENCY = 8;
+// Log a progress line every N READMEs fetched within a strategy.
+const README_LOG_EVERY = 50;
 
 // Stop and sleep when the core rate budget gets this low.
 const RATE_LIMIT_FLOOR = 50;
@@ -66,7 +66,27 @@ function requireToken(): string {
 }
 
 function buildOctokit(token: string): Octokit {
+  // Octokit's default logger dumps every request line ("GET /repos/.../readme")
+  // plus every non-2xx response to stderr, which drowns out our own progress
+  // logs. We silence debug/info entirely and route warn/error through a
+  // filter that drops the expected 404-on-README lines (many repos simply have
+  // no README file); real rate-limit / 5xx warnings still surface.
+  const log = {
+    debug: () => {},
+    info: () => {},
+    warn: (...args: unknown[]) => {
+      const text = args.map(String).join(" ");
+      if (text.includes("/readme - 404")) return;
+      console.warn(...args);
+    },
+    error: (...args: unknown[]) => {
+      const text = args.map(String).join(" ");
+      if (text.includes("/readme - 404")) return;
+      console.error(...args);
+    },
+  };
   const MyOctokit = Octokit.plugin(paginateRest, throttling).defaults({
+    log,
     throttle: {
       // The Search API allows 30 req/min; the core API allows 5000/hr.
       // onRateLimit / onSecondaryRateLimit back off automatically.
@@ -290,22 +310,37 @@ async function processStrategy(
   });
 
   // Pre-load existing rows for these IDs in one query so we don't hit the
-  // DB once per repo during the hot loop.
+  // DB once per repo during the hot loop. We pull pushed_at so we can tell
+  // whether a repo changed since the last ingest and skip re-fetching its
+  // README + re-embedding when it hasn't.
   const ids = unique.map((it) => String(it.id));
-  console.log(`[strategy] ${strategy.label}: checking ${ids.length} IDs against DB...`);
   const existingRows = db
-    .select({ id: repos.id, readme_text: repos.readme_text, embedding: repos.embedding })
+    .select({
+      id: repos.id,
+      readme_text: repos.readme_text,
+      embedding: repos.embedding,
+      pushed_at: repos.pushed_at,
+    })
     .from(repos)
     .where(inArray(repos.id, ids))
-    .all() as { id: string; readme_text: string | null; embedding: string | null }[];
+    .all() as {
+    id: string;
+    readme_text: string | null;
+    embedding: string | null;
+    pushed_at: string;
+  }[];
   const existing = new Map(existingRows.map((r) => [r.id, r]));
-  console.log(`[strategy] ${strategy.label}: ${existing.size} already in DB, ${ids.length - existing.size} new; fetching READMEs...`);
 
   type Task = {
     item: SearchRepoItem;
     owner: string;
     name: string;
-    needsWork: boolean;
+    // True when we must hit the README endpoint: new repo, missing README,
+    // or the repo was pushed since we last ingested it.
+    needsReadme: boolean;
+    // True when we must (re)generate the embedding: README changed, or the
+    // embedding is missing for some reason. When false we reuse the stored one.
+    needsEmbedding: boolean;
     storedReadme: string | null;
     storedEmbedding: string | null;
   };
@@ -313,34 +348,58 @@ async function processStrategy(
     const id = String(item.id);
     const [owner, name] = item.full_name.split("/");
     const row = existing.get(id);
-    const complete = !!row && row.readme_text !== null && row.embedding !== null;
+    const hasReadme = !!row && row.readme_text !== null;
+    const pushedChanged = !row || row.pushed_at !== (item.pushed_at ?? "");
+    const needsReadme = pushedChanged || !hasReadme;
+    const needsEmbedding = needsReadme || !row || row.embedding === null;
     return {
       item,
       owner,
       name,
-      needsWork: !complete,
+      needsReadme,
+      needsEmbedding,
       storedReadme: row?.readme_text ?? null,
       storedEmbedding: row?.embedding ?? null,
     };
   });
 
-  // Fetch READMEs sequentially with a small delay to avoid GitHub's
-  // secondary (abuse-detection) rate limit. For complete repos we reuse the
-  // stored README and skip the fetch entirely (fast on resume).
-  console.log(`[strategy] ${strategy.label}: starting README fetch pool (concurrency=${README_CONCURRENCY}, tasks=${tasks.length})...`);
-  let fetchCount = 0;
+  const needsFetchCount = tasks.filter((t) => t.needsReadme).length;
+  const reuseCount = tasks.length - needsFetchCount;
+  console.log(
+    `[strategy] ${strategy.label}: ${tasks.length} repos — ${needsFetchCount} need README fetch, ${reuseCount} reuse cached (pushed_at unchanged)`,
+  );
+
+  // Fetch READMEs concurrently (bounded pool). Repos whose pushed_at hasn't
+  // changed reuse the cached README and skip the network call entirely — this
+  // is what makes a second full run dramatically faster than the first.
+  const fetchStart = Date.now();
+  let fetched = 0;
+  let reuseHit = 0;
   const readmes = await mapPool(tasks, README_CONCURRENCY, async (task) => {
-    if (!task.needsWork) return task.storedReadme;
-    fetchCount++;
-    if (fetchCount % 50 === 0) console.log(`[strategy] ${strategy.label}: fetched ${fetchCount}/${tasks.length} READMEs...`);
+    if (!task.needsReadme) {
+      reuseHit++;
+      return task.storedReadme;
+    }
     const readme = await fetchReadme(octokit, task.owner, task.name);
-    await sleep(README_FETCH_DELAY_MS);
+    fetched++;
+    if (fetched % README_LOG_EVERY === 0) {
+      const elapsed = Math.round((Date.now() - fetchStart) / 1000);
+      const rate = fetched / Math.max(elapsed, 1);
+      const remainingFetches = needsFetchCount - fetched;
+      const eta = Math.round(remainingFetches / Math.max(rate, 0.01));
+      console.log(
+        `[strategy] ${strategy.label}: fetched ${fetched}/${needsFetchCount} READMEs (${reuseHit} cache hits) — ${elapsed}s elapsed, ~${eta}s eta`,
+      );
+    }
     return readme;
   });
-  console.log(`[strategy] ${strategy.label}: README fetches done, generating embeddings...`);
+  const fetchElapsed = Math.round((Date.now() - fetchStart) / 1000);
+  console.log(
+    `[strategy] ${strategy.label}: READMEs done in ${fetchElapsed}s (fetched ${fetched}, reused ${reuseHit}) — generating embeddings...`,
+  );
 
   let strategyInserted = 0;
-  let strategySkipped = 0;
+  let strategyRefreshed = 0;
 
   for (let i = 0; i < tasks.length; i++) {
     const task = tasks[i];
@@ -351,23 +410,25 @@ async function processStrategy(
     const readmeSnippet = readme ? readme.slice(0, EMBED_README_CHARS) : "";
     const embedText = `${desc}\n${readmeSnippet}`.trim();
 
+    // Only (re)generate the embedding when the README actually changed or it
+    // was missing. Otherwise reuse the stored vector — no model inference.
     let embeddingJson: string | null;
-    if (task.needsWork) {
+    if (task.needsEmbedding) {
       const vec = embedText ? await embedder.embed(embedText) : null;
       embeddingJson = vec && vec.length > 0 ? JSON.stringify(vec) : null;
       if (embeddingJson) counters.embeddingCount++;
     } else {
-      // Reuse the stored embedding; only refresh metadata.
       embeddingJson = task.storedEmbedding;
     }
 
     const existed = existing.has(String(task.item.id));
     upsertRepo(db, toNewRepo(task.item, readme), embeddingJson);
 
-    if (existed && !task.needsWork) {
+    if (existed && !task.needsReadme) {
+      // Metadata-only refresh: pushed_at unchanged, README + embedding reused.
       counters.updated++;
       counters.skipped++;
-      strategySkipped++;
+      strategyRefreshed++;
     } else if (existed) {
       counters.updated++;
     } else {
@@ -382,7 +443,7 @@ async function processStrategy(
   }
 
   console.log(
-    `[strategy] ${strategy.label}: ingested ${strategyInserted} new, skipped ${strategySkipped} already-complete`,
+    `[strategy] ${strategy.label}: ingested ${strategyInserted} new, refreshed ${strategyRefreshed} metadata-only, ${tasks.length - strategyInserted - strategyRefreshed} re-fetched`,
   );
 }
 
@@ -423,15 +484,23 @@ async function main(): Promise<void> {
     processed: 0,
   };
 
+  const runStart = Date.now();
+  let strategiesDone = 0;
+
   for (const strategy of remaining) {
     try {
       await processStrategy(octokit, db, embedder, strategy, counters);
       progress.completed.push(strategy.label);
       saveProgress(progress);
+      strategiesDone++;
       const total = countRepos(db);
       const complete = countCompleteRepos(db);
+      const elapsed = Math.round((Date.now() - runStart) / 1000);
+      const remainingStrategies = remaining.length - strategiesDone;
+      const avgPerStrategy = elapsed / strategiesDone;
+      const eta = Math.round(avgPerStrategy * remainingStrategies);
       console.log(
-        `[progress] DB now has ${total} repos (${complete} with embeddings). inserted=${counters.inserted} updated=${counters.updated} skipped=${counters.skipped}`,
+        `[progress] ${strategiesDone}/${remaining.length} strategies done — DB ${total} repos (${complete} embed). inserted=${counters.inserted} updated=${counters.updated} metadata-only=${counters.skipped} | ${elapsed}s elapsed, ~${eta}s eta (${remainingStrategies} left)`,
       );
     } catch (err) {
       // A strategy may fail (e.g. GitHub secondary rate limit exhausted).
@@ -444,13 +513,14 @@ async function main(): Promise<void> {
 
   const after = countRepos(db);
   const afterComplete = countCompleteRepos(db);
+  const totalElapsed = Math.round((Date.now() - runStart) / 1000);
   console.log(
-    `\n[done] inserted=${counters.inserted} updated=${counters.updated} skipped=${counters.skipped} readme-filled=${counters.readmeCount} embedding-filled=${counters.embeddingCount}`,
+    `\n[done] inserted=${counters.inserted} updated=${counters.updated} metadata-only=${counters.skipped} readme-filled=${counters.readmeCount} embedding-filled=${counters.embeddingCount}`,
   );
   console.log(
     `[done] DB now has ${after} repos (${afterComplete} with embeddings), was ${before} (${beforeComplete} with embeddings)`,
   );
-  console.log(`[done] all ${allStrategies.length} strategies completed`);
+  console.log(`[done] all ${allStrategies.length} strategies completed in ${totalElapsed}s`);
 }
 
 main().catch((err) => {
