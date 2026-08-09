@@ -43,15 +43,44 @@ const STAR_RANGES: { label: string; q: string }[] = [
 
 type Strategy = { label: string; q: string };
 
-function buildStrategies(): Strategy[] {
-  const strategies: Strategy[] = [...STAR_RANGES];
-  for (const topic of TOPICS) {
-    strategies.push({
-      label: `topic:${topic}`,
-      q: `topic:${topic} stars:>50 is:public`,
-    });
-  }
-  return strategies;
+// Broad category keywords used to discover topics dynamically via the
+// GitHub Search Topics API (GET /search/topics). One query per category
+// keeps discovery diverse and bounded. Each query is paginated up to
+// TOPIC_SEARCH_MAX_PAGES pages.
+const TOPIC_CATEGORIES: string[] = [
+  "dev",
+  "language",
+  "web",
+  "data",
+  "media",
+  "infra",
+  "mobile",
+  "system",
+  "security",
+  "science",
+];
+
+// The Search API allows 30 requests/minute when authenticated. We space
+// topic-discovery calls by this much (2.5s => ~24 req/min) to stay safely
+// under the limit and leave headroom for the ingestion search queries that
+// follow. Each topic query is capped at 1000 results (10 pages x 100).
+const TOPIC_SEARCH_PER_PAGE = 100;
+const TOPIC_SEARCH_MAX_PAGES = 5; // up to 500 candidate topics per category
+const TOPIC_SEARCH_INTERVAL_MS = 2500;
+
+function buildStarRangeStrategies(): Strategy[] {
+  return STAR_RANGES.map((r) => ({ label: r.label, q: r.q }));
+}
+
+function topicToStrategy(topic: string): Strategy {
+  return {
+    label: `topic:${topic}`,
+    q: `topic:${topic} stars:>50 is:public`,
+  };
+}
+
+function buildStrategiesForTopics(topics: string[]): Strategy[] {
+  return topics.map(topicToStrategy);
 }
 
 function requireToken(): string {
@@ -192,6 +221,82 @@ async function searchQuery(
     if (pages >= SEARCH_MAX_PAGES) break;
   }
   return items;
+}
+
+type TopicItem = { name: string };
+
+/**
+ * Fetch one page of the GitHub Search Topics API. The topics endpoint is not
+ * part of octokit's typed REST surface, so we call the raw endpoint directly.
+ * Each call costs one of the 30 search requests/minute (distinct from the
+ * 5000/hr core budget), so callers must space these out.
+ */
+async function searchTopicsPage(
+  octokit: Octokit,
+  q: string,
+  page: number,
+): Promise<{ items: TopicItem[]; total: number }> {
+  const response = await octokit.request("GET /search/topics", {
+    q,
+    per_page: TOPIC_SEARCH_PER_PAGE,
+    page,
+    headers: { accept: "application/vnd.github+json" },
+  });
+  const items = (response.data.items ?? []) as TopicItem[];
+  return { items, total: response.data.total_count ?? 0 };
+}
+
+/**
+ * Discover topics beyond the static curated list by querying the GitHub Search
+ * Topics API. We first pull every `is:featured` topic (a small, hand-picked
+ * set GitHub curates), then sweep one broad keyword per category to surface a
+ * large, diverse pool of additional topics. All Search API calls are spaced by
+ * TOPIC_SEARCH_INTERVAL_MS to respect the 30 req/min search budget.
+ */
+async function discoverTopics(octokit: Octokit): Promise<string[]> {
+  const found = new Set<string>();
+
+  // 1. Featured topics (the curated set GitHub marks as featured).
+  console.log("[topics] fetching featured topics (is:featured)...");
+  let featuredCount = 0;
+  for (let page = 1; page <= TOPIC_SEARCH_MAX_PAGES; page++) {
+    const { items, total } = await searchTopicsPage(octokit, "is:featured", page);
+    for (const it of items) {
+      if (it.name) {
+        found.add(it.name);
+        featuredCount++;
+      }
+    }
+    if (page * TOPIC_SEARCH_PER_PAGE >= total) break;
+    await sleep(TOPIC_SEARCH_INTERVAL_MS);
+  }
+  console.log(`[topics] ${featuredCount} featured topics discovered`);
+
+  // 2. Per-category keyword sweep for breadth. `is:featured` alone yields only
+  //    a handful of topics, so we also search each broad keyword to surface
+  //    hundreds of additional (non-featured) topics covering every domain.
+  for (const category of TOPIC_CATEGORIES) {
+    let categoryCount = 0;
+    let total = 0;
+    for (let page = 1; page <= TOPIC_SEARCH_MAX_PAGES; page++) {
+      const res = await searchTopicsPage(octokit, category, page);
+      total = res.total;
+      for (const it of res.items) {
+        if (it.name && !found.has(it.name)) {
+          found.add(it.name);
+          categoryCount++;
+        }
+      }
+      if (page * TOPIC_SEARCH_PER_PAGE >= total) break;
+      await sleep(TOPIC_SEARCH_INTERVAL_MS);
+    }
+    console.log(
+      `[topics] category "${category}": +${categoryCount} new (total_count=${total})`,
+    );
+    await sleep(TOPIC_SEARCH_INTERVAL_MS);
+  }
+
+  return [...found];
 }
 
 function upsertRepo(
@@ -460,7 +565,26 @@ async function main(): Promise<void> {
   const embedder = await getEmbedder();
   console.log("[embed] model loaded");
 
-  const allStrategies = buildStrategies();
+  // Build the topic set: the static curated list (guarantees important niches
+  // are never forgotten) merged with topics discovered dynamically via the
+  // GitHub Search Topics API (is:featured + one broad keyword per category).
+  console.log(
+    `[topics] static curated list has ${TOPICS.length} topics`,
+  );
+  const discovered = await discoverTopics(octokit);
+  const mergedTopics = [...new Set([...TOPICS, ...discovered])];
+  const newTopicCount = mergedTopics.length - TOPICS.length;
+  console.log(
+    `[topics] discovered ${discovered.length} dynamic topics (+${newTopicCount} new after dedup)`,
+  );
+  console.log(
+    `[topics] total topics after fusion: ${mergedTopics.length} (static ${TOPICS.length} + dynamic ${newTopicCount} new)`,
+  );
+
+  const allStrategies = [
+    ...buildStarRangeStrategies(),
+    ...buildStrategiesForTopics(mergedTopics),
+  ];
   const progress = loadProgress();
   const remaining = allStrategies.filter(
     (s) => !progress.completed.includes(s.label),
@@ -472,7 +596,7 @@ async function main(): Promise<void> {
     );
   }
   console.log(
-    `[plan] ${remaining.length} strategies (${STAR_RANGES.length} star ranges + ${TOPICS.length} topics)`,
+    `[plan] ${remaining.length} strategies (${STAR_RANGES.length} star ranges + ${mergedTopics.length} topics)`,
   );
 
   const counters: Counters = {
