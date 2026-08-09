@@ -72,6 +72,12 @@ Schema (`src/db/schema.ts`):
 
 - `GET /api/repos` — returns all repos as JSON, sorted by `stars` descending.
   The `embedding` column is excluded from the response to keep the payload small.
+- `GET /api/search?q=<query>` — semantic search. Embeds the query with the same
+  MiniLM-L6-v2 model, computes cosine similarity against every repo's stored
+  embedding in memory, and returns the repos sorted by similarity descending
+  with a `similarity` score (0–1) on each hit. The `embedding` field is
+  excluded from results. Returns `400` if `q` is missing, empty, or
+  whitespace-only.
 
 ## PWA
 
