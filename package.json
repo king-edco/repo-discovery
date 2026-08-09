@@ -11,10 +11,12 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "ingest": "node --env-file-if-exists=.env.local --import tsx src/scripts/ingest.ts"
+    "ingest": "node --env-file-if-exists=.env.local --import tsx src/scripts/ingest.ts",
+    "verify-embeddings": "node --env-file-if-exists=.env.local --import tsx src/scripts/verify-embeddings.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
+    "@huggingface/transformers": "^4.2.0",
     "@octokit/plugin-paginate-rest": "^15.0.0",
     "@octokit/plugin-throttling": "^11.0.5",
     "@octokit/request-error": "^7.1.1",

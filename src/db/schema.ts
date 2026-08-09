@@ -10,6 +10,9 @@ export const repos = sqliteTable("repos", {
   language: text("language"),
   license: text("license"),
   readme_text: text("readme_text"),
+  // 384-dim MiniLM-L6-v2 embedding, stored as a JSON stringified float[]
+  // (e.g. "[0.0123, -0.0456, ...]"). Null until embeddings are generated.
+  embedding: text("embedding"),
   topics: text("topics").notNull(),
   pushed_at: text("pushed_at").notNull(),
   ingested_at: text("ingested_at")

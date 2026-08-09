@@ -22,6 +22,8 @@ The app runs at http://localhost:3000.
 - `pnpm run db:migrate` — apply pending Drizzle migrations
 - `pnpm run db:studio` — open Drizzle Studio to inspect the DB
 - `pnpm ingest` — fetch top public GitHub repos (>100 stars) into the DB
+- `pnpm verify-embeddings` — check that embeddings exist in the DB and that the
+  generated vector dimension is 384 (all-MiniLM-L6-v2)
 
 ## Ingestion
 
@@ -31,6 +33,11 @@ sorted by stars descending. For each repo it stores id, name, full_name,
 description, url, stars, language, license, topics, and the first 3000 chars of
 the README (fetched via the contents API). Existing rows are upserted on `id`,
 so re-running the script updates fields instead of creating duplicates.
+
+A semantic `embedding` (384-dim, normalized) is generated for each repo from the
+concatenation of its description and the first 500 chars of the README, using
+`Xenova/all-MiniLM-L6-v2` via Transformers.js (ONNX, pure Node/CPU, no Python).
+The model is loaded once at script startup and reused for all repos.
 
 Requires a GitHub token. Copy `.env.example` to `.env.local` and set
 `GITHUB_TOKEN`. Rate limiting is handled by `@octokit/plugin-throttling`
@@ -55,7 +62,8 @@ Schema (`src/db/schema.ts`):
 | stars         | INTEGER |                                |
 | language      | TEXT    | nullable                       |
 | license       | TEXT    | nullable                       |
-| readme_text   | TEXT    | nullable                       |
+| readme_text   | TEXT    | nullable, first 3000 chars     |
+| embedding     | TEXT    | nullable, JSON 384-dim floats  |
 | topics        | TEXT    | JSON stringified               |
 | pushed_at     | TEXT    | ISO date                       |
 | ingested_at   | TEXT    | ISO date, defaults to now()    |
@@ -63,6 +71,7 @@ Schema (`src/db/schema.ts`):
 ## API
 
 - `GET /api/repos` — returns all repos as JSON, sorted by `stars` descending.
+  The `embedding` column is excluded from the response to keep the payload small.
 
 ## PWA
 
