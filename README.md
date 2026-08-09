@@ -21,6 +21,21 @@ The app runs at http://localhost:3000.
 - `pnpm run db:generate` — generate a Drizzle migration from the schema
 - `pnpm run db:migrate` — apply pending Drizzle migrations
 - `pnpm run db:studio` — open Drizzle Studio to inspect the DB
+- `pnpm ingest` — fetch top public GitHub repos (>100 stars) into the DB
+
+## Ingestion
+
+`pnpm ingest` runs `src/scripts/ingest.ts`, which uses the GitHub Search API
+(via `@octokit/rest`) to fetch up to 200 public repos with more than 100 stars,
+sorted by stars descending. For each repo it stores id, name, full_name,
+description, url, stars, language, license, topics, and the first 3000 chars of
+the README (fetched via the contents API). Existing rows are upserted on `id`,
+so re-running the script updates fields instead of creating duplicates.
+
+Requires a GitHub token. Copy `.env.example` to `.env.local` and set
+`GITHUB_TOKEN`. Rate limiting is handled by `@octokit/plugin-throttling`
+(automatic backoff) plus a pre-flight check that sleeps when remaining requests
+drop below a floor.
 
 ## Database
 
