@@ -474,51 +474,43 @@ async function processStrategy(
     `[strategy] ${strategy.label}: ${tasks.length} repos — ${needsFetchCount} need README fetch, ${reuseCount} reuse cached (pushed_at unchanged)`,
   );
 
-  // Fetch READMEs concurrently (bounded pool). Repos whose pushed_at hasn't
-  // changed reuse the cached README and skip the network call entirely — this
-  // is what makes a second full run dramatically faster than the first.
+  // Process each repo end-to-end (fetch README -> embed -> upsert) inside the
+  // bounded pool. This interleaves writing with fetching so each repo is
+  // persisted to the DB as soon as its worker finishes — if the process is
+  // interrupted mid-strategy, every repo processed so far is already durable
+  // in the SQLite file (WAL + autocommit per upsertRepo call).
   const fetchStart = Date.now();
   let fetched = 0;
   let reuseHit = 0;
-  const readmes = await mapPool(tasks, README_CONCURRENCY, async (task) => {
-    if (!task.needsReadme) {
-      reuseHit++;
-      return task.storedReadme;
-    }
-    const readme = await fetchReadme(octokit, task.owner, task.name);
-    fetched++;
-    if (fetched % README_LOG_EVERY === 0) {
-      const elapsed = Math.round((Date.now() - fetchStart) / 1000);
-      const rate = fetched / Math.max(elapsed, 1);
-      const remainingFetches = needsFetchCount - fetched;
-      const eta = Math.round(remainingFetches / Math.max(rate, 0.01));
-      console.log(
-        `[strategy] ${strategy.label}: fetched ${fetched}/${needsFetchCount} READMEs (${reuseHit} cache hits) — ${elapsed}s elapsed, ~${eta}s eta`,
-      );
-    }
-    return readme;
-  });
-  const fetchElapsed = Math.round((Date.now() - fetchStart) / 1000);
-  console.log(
-    `[strategy] ${strategy.label}: READMEs done in ${fetchElapsed}s (fetched ${fetched}, reused ${reuseHit}) — generating embeddings...`,
-  );
-
   let strategyInserted = 0;
   let strategyRefreshed = 0;
 
-  for (let i = 0; i < tasks.length; i++) {
-    const task = tasks[i];
-    const readme = readmes[i];
-    if (readme) counters.readmeCount++;
+  await mapPool(tasks, README_CONCURRENCY, async (task) => {
+    // 1. README — reuse the cached one when pushed_at is unchanged.
+    let readme: string | null;
+    if (!task.needsReadme) {
+      reuseHit++;
+      readme = task.storedReadme;
+    } else {
+      readme = await fetchReadme(octokit, task.owner, task.name);
+      fetched++;
+      if (fetched % README_LOG_EVERY === 0) {
+        const elapsed = Math.round((Date.now() - fetchStart) / 1000);
+        const rate = fetched / Math.max(elapsed, 1);
+        const remainingFetches = needsFetchCount - fetched;
+        const eta = Math.round(remainingFetches / Math.max(rate, 0.01));
+        console.log(
+          `[strategy] ${strategy.label}: fetched ${fetched}/${needsFetchCount} READMEs (${reuseHit} cache hits) — ${elapsed}s elapsed, ~${eta}s eta`,
+        );
+      }
+    }
 
-    const desc = task.item.description ?? "";
-    const readmeSnippet = readme ? readme.slice(0, EMBED_README_CHARS) : "";
-    const embedText = `${desc}\n${readmeSnippet}`.trim();
-
-    // Only (re)generate the embedding when the README actually changed or it
-    // was missing. Otherwise reuse the stored vector — no model inference.
+    // 2. Embedding — regenerate only when the README changed or it's missing.
     let embeddingJson: string | null;
     if (task.needsEmbedding) {
+      const desc = task.item.description ?? "";
+      const readmeSnippet = readme ? readme.slice(0, EMBED_README_CHARS) : "";
+      const embedText = `${desc}\n${readmeSnippet}`.trim();
       const vec = embedText ? await embedder.embed(embedText) : null;
       embeddingJson = vec && vec.length > 0 ? JSON.stringify(vec) : null;
       if (embeddingJson) counters.embeddingCount++;
@@ -526,9 +518,12 @@ async function processStrategy(
       embeddingJson = task.storedEmbedding;
     }
 
+    // 3. UPSERT — durable immediately (better-sqlite3 autocommit, WAL).
     const existed = existing.has(String(task.item.id));
     upsertRepo(db, toNewRepo(task.item, readme), embeddingJson);
 
+    // 4. Counters.
+    if (readme) counters.readmeCount++;
     if (existed && !task.needsReadme) {
       // Metadata-only refresh: pushed_at unchanged, README + embedding reused.
       counters.updated++;
@@ -545,10 +540,11 @@ async function processStrategy(
     if (counters.processed % RATE_CHECK_EVERY === 0) {
       await checkRateLimit(octokit, `progress (processed ${counters.processed})`);
     }
-  }
+  });
 
+  const fetchElapsed = Math.round((Date.now() - fetchStart) / 1000);
   console.log(
-    `[strategy] ${strategy.label}: ingested ${strategyInserted} new, refreshed ${strategyRefreshed} metadata-only, ${tasks.length - strategyInserted - strategyRefreshed} re-fetched`,
+    `[strategy] ${strategy.label}: done in ${fetchElapsed}s (fetched ${fetched}, reused ${reuseHit}) — ingested ${strategyInserted} new, refreshed ${strategyRefreshed} metadata-only, ${tasks.length - strategyInserted - strategyRefreshed} re-fetched`,
   );
 }
 
