@@ -37,6 +37,9 @@ yarn-error.log*
 # transformers.js model cache
 .cache/
 
+# ingestion resumable-progress marker
+data/ingest-progress.json
+
 # vercel
 .vercel
 
