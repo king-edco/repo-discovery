@@ -48,14 +48,20 @@ const initialFeed: FeedState = { repos: [], loading: true, error: null };
  * serves a cached copy first (stale-while-revalidate), so on reload while
  * offline this resolves with the previously-seen data. We surface a distinct
  * "offline-no-cache" error only when there's no cached entry to fall back on.
+ *
+ * `minStars`, when > 0, is forwarded as a query param so the server filters
+ * repos below the threshold. The param is read live so changing the setting
+ * re-fetches the feed.
  */
-export function useRepoFeed() {
+export function useRepoFeed(minStars: number = 0) {
   const online = useOnlineStatus();
   const [state, setState] = useState<FeedState>(initialFeed);
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/repos", { cache: "no-store" });
+      const url = new URL("/api/repos", location.origin);
+      if (minStars > 0) url.searchParams.set("minStars", String(minStars));
+      const res = await fetch(url.toString(), { cache: "no-store" });
       if (!res.ok && res.status === 0) throw new TypeError("network");
       const data = (await res.json()) as Repo[];
       setState({ repos: data, loading: false, error: null });
@@ -66,7 +72,7 @@ export function useRepoFeed() {
           : { repos: [], loading: false, error: "offline-no-cache" },
       );
     }
-  }, []);
+  }, [minStars]);
 
   // Fetch on mount and whenever connectivity returns, so the feed picks up
   // fresh data after an offline episode. load() drives setState asynchronously;

@@ -10,6 +10,10 @@ const withSerwist = withSerwistInit({
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["better-sqlite3", "@huggingface/transformers", "onnxruntime-node"],
+  allowedDevOrigins: [
+    "work-1-tnbtljnnujksftmu.prod-runtime.all-hands.dev",
+    "work-2-tnbtljnnujksftmu.prod-runtime.all-hands.dev",
+  ],
 };
 
 export default withSerwist(nextConfig);

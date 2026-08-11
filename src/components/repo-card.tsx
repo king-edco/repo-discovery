@@ -1,66 +1,81 @@
-"use client";
-
+import Link from "next/link";
 import type { Repo } from "@/lib/types";
+import { formatCount, langColor, previewDescription, previewImage } from "@/lib/format";
 
-function formatStars(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k`;
-  return String(n);
+function StarIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 2l2.9 6.3 6.9.6-5.2 4.6 1.6 6.8L12 17l-6.2 3.3 1.6-6.8L2.2 8.9l6.9-.6L12 2z" />
+    </svg>
+  );
 }
 
-function parseTopics(topics: string): string[] {
-  try {
-    const parsed = JSON.parse(topics);
-    return Array.isArray(parsed) ? parsed.slice(0, 4) : [];
-  } catch {
-    return [];
-  }
+function ScaleIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3v18" />
+      <path d="M3 7l4-4 4 4" />
+      <path d="M3 7h8" />
+      <path d="M13 17l4 4 4-4" />
+      <path d="M13 17h8" />
+    </svg>
+  );
 }
 
 export function RepoCard({ repo }: { repo: Repo }) {
-  const topics = parseTopics(repo.topics);
+  const description = previewDescription(repo.description, repo.readme_text);
   return (
-    <a
-      href={repo.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="group block rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40 hover:bg-accent/40"
+    <Link
+      href={`/repos/${repo.id}`}
+      className="group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card transition-all hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="truncate font-mono text-sm font-medium text-foreground group-hover:text-primary">
-            {repo.full_name}
-          </h3>
-          {repo.description ? (
-            <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-              {repo.description}
-            </p>
-          ) : null}
-        </div>
-        <div className="flex shrink-0 items-center gap-1 text-amber-500">
-          <svg className="size-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M12 2l2.9 6.3 6.9.6-5.2 4.6 1.6 6.8L12 17l-6.2 3.3 1.6-6.8L2.2 8.9l6.9-.6L12 2z" />
-          </svg>
-          <span className="text-xs font-medium tabular-nums">
-            {formatStars(repo.stars)}
-          </span>
-        </div>
+      <div className="relative w-full overflow-hidden bg-muted">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={previewImage(repo.full_name)}
+          alt={`Aperçu de ${repo.full_name}`}
+          loading="lazy"
+          className="h-auto w-full transition-transform duration-500 group-hover:scale-[1.03]"
+        />
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {repo.language ? (
-          <span className="rounded-md bg-secondary px-1.5 py-0.5 text-xs text-secondary-foreground">
-            {repo.language}
+      <div className="flex flex-1 flex-col gap-3 p-5">
+        <div className="space-y-1.5">
+          <h3 className="line-clamp-1 text-lg font-semibold tracking-tight text-foreground group-hover:text-primary">
+            {repo.name}
+          </h3>
+          <p className="text-xs text-muted-foreground">{repo.full_name}</p>
+        </div>
+
+        <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">
+          {description || "Aucune description disponible."}
+        </p>
+
+        <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-2 pt-2 text-sm text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5">
+            <StarIcon className="size-4 text-amber-500" />
+            <span className="font-medium tabular-nums text-foreground">
+              {formatCount(repo.stars)}
+            </span>
           </span>
-        ) : null}
-        {topics.map((t) => (
-          <span
-            key={t}
-            className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
-          >
-            {t}
-          </span>
-        ))}
+          {repo.language ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className="size-3 rounded-full"
+                style={{ backgroundColor: langColor(repo.language) }}
+                aria-hidden="true"
+              />
+              <span>{repo.language}</span>
+            </span>
+          ) : null}
+          {repo.license ? (
+            <span className="inline-flex items-center gap-1.5">
+              <ScaleIcon className="size-4" />
+              <span>{repo.license}</span>
+            </span>
+          ) : null}
+        </div>
       </div>
-    </a>
+    </Link>
   );
 }

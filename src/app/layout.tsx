@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
+import { ThemeScript } from "@/components/theme-script";
+import { ThemeApplier } from "@/components/theme-applier";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -43,8 +45,13 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
+      <head>
+        <ThemeScript />
+      </head>
       <body className="min-h-full flex flex-col">
+        <ThemeApplier />
         {children}
         <ServiceWorkerRegister />
       </body>

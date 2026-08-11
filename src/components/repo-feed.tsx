@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RepoCard } from "@/components/repo-card";
 import { useOnlineStatus, useRepoFeed } from "@/lib/use-feed";
+import { useSettings } from "@/lib/settings";
 import type { Repo } from "@/lib/types";
 
 type SearchState =
@@ -12,10 +14,12 @@ type SearchState =
   | { mode: "offline-no-cache" }
   | { mode: "error" };
 
+const PAGE_SIZE = 8;
+
 function ConnectionBadge({ online }: { online: boolean }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
         online
           ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
           : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
@@ -30,9 +34,14 @@ function ConnectionBadge({ online }: { online: boolean }) {
 }
 
 export function RepoFeed() {
-  const { repos, loading, error, online, reload } = useRepoFeed();
+  const { settings } = useSettings();
+  const minStars = settings.minStars;
+  const { repos, loading, error, online, reload } = useRepoFeed(minStars);
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState<SearchState>({ mode: "idle" });
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
   // Debounced search: fires when the user stops typing for 350ms.
   const runSearch = useCallback(async (q: string) => {
     const trimmed = q.trim();
@@ -42,7 +51,10 @@ export function RepoFeed() {
     }
     setSearch({ mode: "loading" });
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}`);
+      const url = new URL("/api/search", location.origin);
+      url.searchParams.set("q", trimmed);
+      if (minStars > 0) url.searchParams.set("minStars", String(minStars));
+      const res = await fetch(url.toString());
       if (!res.ok && res.status === 0) throw new TypeError("network");
       const data = (await res.json()) as { count: number; results: Repo[] };
       setSearch({ mode: "results", repos: data.results, count: data.count });
@@ -53,7 +65,7 @@ export function RepoFeed() {
         setSearch({ mode: "error" });
       }
     }
-  }, []);
+  }, [minStars]);
 
   useEffect(() => {
     const handle = setTimeout(() => void runSearch(query), 350);
@@ -62,22 +74,169 @@ export function RepoFeed() {
 
   const showingSearch =
     search.mode === "results" || search.mode === "loading" || query.trim() !== "";
-  const list =
-    search.mode === "results" ? search.repos : repos;
+  const list = search.mode === "results" ? search.repos : repos;
+
+  // Reset the infinite-scroll window when the list identity changes (switching
+  // between feed / search results). This is React's documented "adjust state
+  // during render" pattern — not an effect, so it avoids cascading renders.
+  const [trackedList, setTrackedList] = useState(list);
+  if (trackedList !== list) {
+    setTrackedList(list);
+    setVisibleCount(PAGE_SIZE);
+  }
+
+  const hasMore = list.length > visibleCount;
+  const showMore = useCallback(() => {
+    setVisibleCount((c) => c + PAGE_SIZE);
+  }, []);
+
+  // Infinite scroll via IntersectionObserver on a sentinel element.
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || !hasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          showMore();
+        }
+      },
+      { rootMargin: "600px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, showMore]);
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 py-8">
-      <header className="mb-6">
+    <div className="min-h-screen overflow-x-hidden bg-background">
+      <StickyHeader
+        query={query}
+        onQuery={setQuery}
+        online={online}
+        loading={loading}
+        onReload={reload}
+      />
+
+      <main className="mx-auto w-full max-w-screen-2xl px-4 pb-20 pt-6 sm:px-5">
+        {!online && !loading && !showingSearch ? (
+          <OfflineNotice hasCache={error !== "offline-no-cache"} />
+        ) : null}
+
+        {showingSearch && search.mode === "offline-no-cache" ? (
+          <OfflineNotice hasCache={false} />
+        ) : null}
+
+        {loading && !showingSearch ? (
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div
+                key={i}
+                className="min-w-0 overflow-hidden rounded-2xl border border-border bg-card"
+              >
+                <div className="aspect-[1.91/1] w-full animate-pulse bg-muted" />
+                <div className="space-y-2 p-5">
+                  <div className="h-5 w-2/3 animate-pulse rounded bg-muted" />
+                  <div className="h-4 w-full animate-pulse rounded bg-muted" />
+                  <div className="h-4 w-1/2 animate-pulse rounded bg-muted" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {showingSearch && search.mode === "loading" ? (
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div
+                key={i}
+                className="min-w-0 overflow-hidden rounded-2xl border border-border bg-card"
+              >
+                <div className="aspect-[1.91/1] w-full animate-pulse bg-muted" />
+                <div className="space-y-2 p-5">
+                  <div className="h-5 w-2/3 animate-pulse rounded bg-muted" />
+                  <div className="h-4 w-full animate-pulse rounded bg-muted" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {!loading || showingSearch ? (
+          list.length > 0 ? (
+            <>
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
+                {list.slice(0, visibleCount).map((repo) => (
+                  <RepoCard key={repo.id} repo={repo} />
+                ))}
+              </div>
+              {hasMore ? (
+                <div ref={sentinelRef} className="py-8 text-center">
+                  <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                    <span className="size-4 animate-spin rounded-full border-2 border-muted border-t-foreground" />
+                    Chargement…
+                  </span>
+                </div>
+              ) : (
+                <p className="pt-10 text-center text-sm text-muted-foreground">
+                  Vous êtes à la fin du feed.
+                </p>
+              )}
+            </>
+          ) : showingSearch && search.mode !== "loading" ? (
+            <p className="py-16 text-center text-sm text-muted-foreground">
+              Aucun résultat pour « {query.trim()} ».
+            </p>
+          ) : !showingSearch && error === "offline-no-cache" ? null : null
+        ) : null}
+      </main>
+    </div>
+  );
+}
+
+function StickyHeader({
+  query,
+  onQuery,
+  online,
+  loading,
+  onReload,
+}: {
+  query: string;
+  onQuery: (v: string) => void;
+  online: boolean;
+  loading: boolean;
+  onReload: () => void;
+}) {
+  return (
+    <header className="sticky top-0 z-20 border-b border-border bg-background/80 backdrop-blur-xl">
+      <div className="mx-auto w-full max-w-screen-2xl px-4 py-4">
         <div className="flex items-center justify-between gap-3">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+          <h1 className="text-xl font-bold tracking-tight text-foreground">
             Foundry
           </h1>
           <div className="flex items-center gap-2">
+            <Link
+              href="/settings"
+              className="inline-flex size-8 items-center justify-center rounded-full border border-input bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label="Réglages"
+            >
+              <svg
+                className="size-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            </Link>
             <button
               type="button"
-              onClick={reload}
+              onClick={onReload}
               disabled={loading}
-              className="inline-flex size-8 items-center justify-center rounded-lg border border-input bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+              className="inline-flex size-8 items-center justify-center rounded-full border border-input bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
               aria-label="Recharger"
             >
               <svg
@@ -95,16 +254,10 @@ export function RepoFeed() {
             <ConnectionBadge online={online} />
           </div>
         </div>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Découverte de dépôts GitHub hors-ligne. Les données consultées
-          restent disponibles sans connexion.
-        </p>
-      </header>
 
-      <div className="mb-6">
-        <div className="relative">
+        <div className="relative mt-3">
           <svg
-            className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -117,59 +270,20 @@ export function RepoFeed() {
           <input
             type="search"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Rechercher (ex: jeu d'échecs, game engine…)"
-            className="w-full rounded-lg border border-input bg-background py-2 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30"
+            onChange={(e) => onQuery(e.target.value)}
+            placeholder="Rechercher un dépôt…"
+            className="w-full rounded-full border border-input bg-card py-2.5 pl-11 pr-4 text-sm text-foreground shadow-sm transition-colors placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15"
+            aria-label="Rechercher un dépôt"
           />
         </div>
       </div>
-
-      {!online && !loading && !showingSearch ? (
-        <OfflineNotice hasCache={error !== "offline-no-cache"} />
-      ) : null}
-
-      {showingSearch && search.mode === "offline-no-cache" ? (
-        <OfflineNotice hasCache={false} />
-      ) : null}
-
-      {loading && !showingSearch ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-28 animate-pulse rounded-xl border border-border bg-muted/40"
-            />
-          ))}
-        </div>
-      ) : null}
-
-      {showingSearch && search.mode === "loading" ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">
-          Recherche…
-        </p>
-      ) : null}
-
-      {!loading || showingSearch ? (
-        list.length > 0 ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {list.slice(0, 60).map((repo) => (
-              <RepoCard key={repo.id} repo={repo} />
-            ))}
-          </div>
-        ) : !showingSearch && error === "offline-no-cache" ? null : showingSearch &&
-          search.mode !== "loading" ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">
-            Aucun résultat.
-          </p>
-        ) : null
-      ) : null}
-    </div>
+    </header>
   );
 }
 
 function OfflineNotice({ hasCache }: { hasCache: boolean }) {
   return hasCache ? (
-    <div className="mb-4 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+    <div className="mb-6 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
       <svg className="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
         <path d="M1 1l22 22" />
         <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
@@ -181,7 +295,7 @@ function OfflineNotice({ hasCache }: { hasCache: boolean }) {
       données se rafraîchiront.
     </div>
   ) : (
-    <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-6 text-center">
+    <div className="mb-6 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-8 text-center">
       <p className="font-medium text-destructive">Hors-ligne</p>
       <p className="mt-1 text-sm text-muted-foreground">
         Aucune donnée en cache pour cette requête. Reconnectez-vous pour

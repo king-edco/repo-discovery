@@ -41,6 +41,12 @@ export async function GET(request: Request) {
     );
   }
 
+  // Optional minimum-star filter (matches the feed setting).
+  const minStarsRaw = searchParams.get("minStars");
+  const minStars = minStarsRaw !== null && Number.isFinite(Number(minStarsRaw)) && Number(minStarsRaw) > 0
+    ? Math.floor(Number(minStarsRaw))
+    : null;
+
   const db = getDb();
   const rows = db
     .select({
@@ -82,6 +88,7 @@ export async function GET(request: Request) {
         similarity: cosineSimilarity(queryVec, repoVec),
       };
     })
+    .filter((h) => minStars === null || h.stars >= minStars)
     .sort((a, b) => b.similarity - a.similarity);
 
   // Keep the embedding column out of the response.
