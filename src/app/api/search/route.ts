@@ -33,7 +33,7 @@ export async function GET(request: Request) {
   }
 
   const embedder = await getEmbedder();
-  const queryVec = await embedder.embed(q);
+  const queryVec = await embedder.embedQuery(q);
   if (queryVec.length === 0) {
     return Response.json(
       { error: "Could not generate an embedding for the query." },
