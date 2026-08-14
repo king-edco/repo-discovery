@@ -12,6 +12,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "ingest": "node --env-file-if-exists=.env.local --import tsx src/scripts/ingest.ts",
+    "reembed": "node --env-file-if-exists=.env.local --import tsx src/scripts/reembed.ts",
     "verify-embeddings": "node --env-file-if-exists=.env.local --import tsx src/scripts/verify-embeddings.ts"
   },
   "dependencies": {

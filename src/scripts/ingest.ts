@@ -511,7 +511,7 @@ async function processStrategy(
       const desc = task.item.description ?? "";
       const readmeSnippet = readme ? readme.slice(0, EMBED_README_CHARS) : "";
       const embedText = `${desc}\n${readmeSnippet}`.trim();
-      const vec = embedText ? await embedder.embed(embedText) : null;
+      const vec = embedText ? await embedder.embedPassage(embedText) : null;
       embeddingJson = vec && vec.length > 0 ? JSON.stringify(vec) : null;
       if (embeddingJson) counters.embeddingCount++;
     } else {
@@ -557,7 +557,7 @@ async function main(): Promise<void> {
   const beforeComplete = countCompleteRepos(db);
   console.log(`[start] ${before} repos in DB (${beforeComplete} with embeddings)`);
 
-  console.log("[embed] loading model Xenova/all-MiniLM-L6-v2...");
+  console.log("[embed] loading model Xenova/multilingual-e5-small (q8)...");
   const embedder = await getEmbedder();
   console.log("[embed] model loaded");
 

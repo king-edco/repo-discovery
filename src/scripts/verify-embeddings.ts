@@ -43,14 +43,14 @@ async function main(): Promise<void> {
     console.log(`[verify] L2 norm: ${norm.toFixed(4)} (normalized ≈ 1.0)`);
     console.log(`[verify] first 5 values: [${vec.slice(0, 5).map((v) => v.toFixed(6)).join(", ")}]`);
     if (vec.length === 384) {
-      console.log("[verify] ✅ dimension is 384 (correct for all-MiniLM-L6-v2)");
+      console.log("[verify] ✅ dimension is 384 (correct for multilingual-e5-small)");
     } else {
       console.log(`[verify] ❌ expected 384, got ${vec.length}`);
     }
   }
 
   // Also confirm the live model produces 384-dim vectors.
-  console.log("[verify] loading model to confirm live output dimension...");
+  console.log("[verify] loading model Xenova/multilingual-e5-small (q8) to confirm live output dimension...");
   const embedder = await getEmbedder();
   const live = await embedder.embed("semantic search test sentence");
   console.log(`[verify] live model embedding dimension: ${live.length}`);

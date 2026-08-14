@@ -22,8 +22,12 @@ The app runs at http://localhost:3000.
 - `pnpm run db:migrate` — apply pending Drizzle migrations
 - `pnpm run db:studio` — open Drizzle Studio to inspect the DB
 - `pnpm ingest` — fetch top public GitHub repos (>100 stars) into the DB
+- `pnpm reembed` — re-vectorize all repos already in the DB with the current
+  embedding model, without re-fetching READMEs from GitHub. Run this after
+  swapping the embedding model (old vectors are invalid until regenerated).
+  Pass `--empty-only` to backfill only rows that have no embedding yet.
 - `pnpm verify-embeddings` — check that embeddings exist in the DB and that the
-  generated vector dimension is 384 (all-MiniLM-L6-v2)
+  generated vector dimension is 384 (multilingual-e5-small)
 
 ## Ingestion
 
@@ -34,10 +38,14 @@ description, url, stars, language, license, topics, and the first 3000 chars of
 the README (fetched via the contents API). Existing rows are upserted on `id`,
 so re-running the script updates fields instead of creating duplicates.
 
-A semantic `embedding` (384-dim, normalized) is generated for each repo from the
+A semantic `embedding` (384-dim, L2-normalized) is generated for each repo from the
 concatenation of its description and the first 500 chars of the README, using
-`Xenova/all-MiniLM-L6-v2` via Transformers.js (ONNX, pure Node/CPU, no Python).
-The model is loaded once at script startup and reused for all repos.
+`Xenova/multilingual-e5-small` via Transformers.js (q8-quantized ONNX, pure
+Node/CPU, no Python). E5 requires a task prefix on the input: repos are indexed
+with the `passage: ` prefix (see `embedPassage` in `src/lib/embeddings.ts`). The
+model is loaded once at script startup and reused for all repos. Because the
+output dimension (384) matches the previous model, no SQLite schema migration is
+needed when swapping models — just run `pnpm reembed` to regenerate vectors.
 
 Requires a GitHub token. Copy `.env.example` to `.env.local` and set
 `GITHUB_TOKEN`. Rate limiting is handled by `@octokit/plugin-throttling`
@@ -73,11 +81,12 @@ Schema (`src/db/schema.ts`):
 - `GET /api/repos` — returns all repos as JSON, sorted by `stars` descending.
   The `embedding` column is excluded from the response to keep the payload small.
 - `GET /api/search?q=<query>` — semantic search. Embeds the query with the same
-  MiniLM-L6-v2 model, computes cosine similarity against every repo's stored
-  embedding in memory, and returns the repos sorted by similarity descending
-  with a `similarity` score (0–1) on each hit. The `embedding` field is
-  excluded from results. Returns `400` if `q` is missing, empty, or
-  whitespace-only.
+  multilingual-e5-small model (using the E5 `query: ` prefix), computes cosine
+  similarity against every repo's stored embedding in memory, and returns the
+  repos sorted by similarity descending with a `similarity` score (0–1) on each
+  hit. Cross-lingual: a French query surfaces repos documented only in English.
+  The `embedding` field is excluded from results. Returns `400` if `q` is
+  missing, empty, or whitespace-only.
 
 ## PWA
 
