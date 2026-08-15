@@ -76,6 +76,41 @@ export const demandQuota = sqliteTable("demand_quota", {
 export type DemandQuota = typeof demandQuota.$inferSelect;
 export type NewDemandQuota = typeof demandQuota.$inferInsert;
 
+// --- Commercial competitors ------------------------------------------------
+// Software products pulled from Wikidata (SPARQL). Each row is one product;
+// the `wikidata_id` is the dedup key (Q-id). The `embedding` column holds the
+// canonical 384-dim e5 passage embedding (JSON stringified float[]) shared
+// with repos/demand_signals so a repo's KNN neighbours over `competitor_vectors`
+// are its closest commercial competitors — no category wiring required.
+
+export const marketCompetitors = sqliteTable("market_competitors", {
+  // Wikidata Q-id, e.g. "Q305936" (VS Code). Stable across re-crawls.
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  // Free-text category label from the Wikidata class the product is an
+  // instance of (e.g. "software", "integrated development environment").
+  // Stored for display + as embedding input, not as a join key.
+  category: text("category"),
+  // Canonical Wikidata entity URL (https://www.wikidata.org/wiki/Q...).
+  source_url: text("source_url").notNull(),
+  // Official website when Wikidata has one (P856); nullable.
+  website: text("website"),
+  // License label from Wikidata (P275) when available, e.g. "MIT License",
+  // "proprietary license". Used by the commercial-score license weight.
+  license: text("license"),
+  // Primary programming language label (P277) when available.
+  language: text("language"),
+  crawled_at: text("crawled_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  // 384-dim e5 embedding (JSON stringified float[]), passage prefix.
+  embedding: text("embedding"),
+});
+
+export type MarketCompetitor = typeof marketCompetitors.$inferSelect;
+export type NewMarketCompetitor = typeof marketCompetitors.$inferInsert;
+
 // Tables-only schema object (excludes non-table exports like DEMAND_SOURCES)
 // so the Drizzle DB type matches the config passed to `drizzle()`.
-export const schema = { repos, demandSignals, demandQuota };
+export const schema = { repos, demandSignals, demandQuota, marketCompetitors };

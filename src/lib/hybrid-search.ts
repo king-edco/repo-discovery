@@ -1,12 +1,13 @@
 import { getDb } from "@/db";
-import { demandSignals, repos, type DemandSignal, type Repo } from "@/db/schema";
+import { demandSignals, marketCompetitors, repos, type DemandSignal, type MarketCompetitor, type Repo } from "@/db/schema";
 import {
   distanceToCosine,
+  knnCompetitors,
   knnDemandSignals,
   knnRepos,
   type VectorHit,
 } from "@/lib/vector-db";
-import { buildFtsQuery, ftsSearchDemandSignals, ftsSearchRepos } from "@/lib/fts";
+import { buildFtsQuery, ftsSearchCompetitors, ftsSearchDemandSignals, ftsSearchRepos } from "@/lib/fts";
 
 // --- Hybrid search: vector KNN + FTS5 BM25, fused by Reciprocal Rank Fusion
 //
@@ -287,6 +288,240 @@ export function searchRepos(
     results.push({ ...rest, similarity, rrfScore: o.score, matchedBy });
   }
   return results;
+}
+
+// --- Competitor matching (repo -> commercial competitors) -----------------
+//
+// Same hybrid philosophy as demand-signal matching: sqlite-vec KNN over the
+// shared e5 space finds the closest commercial products to a repo's embedding,
+// and FTS5 surfaces lexical matches on competitor name/description/category.
+// This works for ANY repo without category wiring — the repo's embedding
+// alone defines its position in the product space.
+
+export const DEFAULT_COMPETITOR_TOP_N = 5;
+// Competitors are commercial products, so the noise floor is slightly higher
+// than demand signals: a weak semantic neighbour that isn't a real competitor
+// adds noise to the "competitive landscape" UI.
+export const COMPETITOR_COSINE_FLOOR = 0.45;
+
+export type CompetitorMatch = Omit<MarketCompetitor, "embedding"> & {
+  similarity: number; // cosine to the repo embedding
+  rrfScore: number;
+  matchedBy: MatchChannel;
+};
+
+/**
+ * Find commercial competitors for a repo via hybrid vector + FTS search over
+ * `market_competitors`. Vector channel: KNN over competitor_vectors for the
+ * repo's embedding. FTS channel: BM25 over competitors_fts for a query built
+ * from the repo's name + topics + description. Returns the top-N competitors
+ * above the noise gate, each with a `matchedBy` provenance.
+ */
+export function findCompetitors(
+  repo: Pick<Repo, "id" | "name" | "full_name" | "description" | "topics">,
+  repoEmbedding: number[] | null,
+  opts: { candidates?: number; topN?: number } = {},
+): CompetitorMatch[] {
+  const candidates = opts.candidates ?? DEFAULT_CANDIDATES;
+  const topN = opts.topN ?? DEFAULT_COMPETITOR_TOP_N;
+
+  // --- vector channel ---
+  const vectorHits: (VectorHit & { cosine: number })[] =
+    repoEmbedding && repoEmbedding.length > 0
+      ? knnCompetitors(repoEmbedding, candidates).map((h) => ({
+          ...h,
+          cosine: distanceToCosine(h.distance),
+        }))
+      : [];
+  const vectorById = new Map(vectorHits.map((h) => [h.id, h]));
+
+  // --- FTS channel ---
+  const ftsQueryText = buildRepoFtsQuery(repo);
+  const ftsHits = ftsSearchCompetitors(ftsQueryText, candidates);
+  const ftsById = new Map(ftsHits.map((h) => [h.id, h]));
+
+  // --- noise gate ---
+  const admitted = new Set<string>();
+  for (const h of vectorHits) {
+    if (h.cosine >= COMPETITOR_COSINE_FLOOR) admitted.add(h.id);
+  }
+  for (const h of ftsHits) admitted.add(h.id);
+  if (admitted.size === 0) return [];
+
+  // --- RRF fusion ---
+  const channels: ChannelResult[] = [
+    {
+      channel: "vector",
+      ranked: vectorHits
+        .filter((h) => admitted.has(h.id))
+        .map((h, i) => ({ id: h.id, rank: i + 1 })),
+    },
+  ];
+  if (ftsHits.length > 0) {
+    channels.push({
+      channel: "fts",
+      ranked: ftsHits
+        .filter((h) => admitted.has(h.id))
+        .map((h, i) => ({ id: h.id, rank: i + 1 })),
+    });
+  }
+  const scores = rrfFuse(channels, RRF_K);
+
+  const ordered = [...admitted]
+    .map((id) => ({ id, score: scores.get(id) ?? 0 }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topN);
+
+  if (ordered.length === 0) return [];
+
+  // --- hydrate ---
+  const db = getDb();
+  const ids = ordered.map((o) => o.id);
+  const rows = db
+    .select()
+    .from(marketCompetitors)
+    .all()
+    .filter((r) => ids.includes(r.id));
+  const byId = new Map(rows.map((r) => [r.id, r]));
+
+  const results: CompetitorMatch[] = [];
+  for (const o of ordered) {
+    const row = byId.get(o.id);
+    if (!row) continue;
+    const vec = vectorById.get(o.id);
+    const inFts = ftsById.has(o.id);
+    const inVec = !!vec;
+    const matchedBy: MatchChannel = inVec && inFts ? "both" : inFts ? "fts" : "vector";
+    let similarity = vec?.cosine ?? 0;
+    if (!inVec && row.embedding) {
+      try {
+        const compVec = JSON.parse(row.embedding) as number[];
+        if (repoEmbedding && compVec.length === repoEmbedding.length) {
+          similarity = cosineDot(repoEmbedding, compVec);
+        }
+      } catch {
+        /* keep 0 */
+      }
+    }
+    const { embedding: _emb, ...rest } = row;
+    void _emb;
+    results.push({ ...rest, similarity, rrfScore: o.score, matchedBy });
+  }
+  return results;
+}
+
+// --- Commercial potential score -------------------------------------------
+//
+// On-demand (never stored): combines three axes into a single 0–100 score.
+//   1. Demand intensity   = count of demand signals matched above the noise
+//                            gate × the mean RRF score of those signals.
+//   2. License weight     = 1.0 MIT/Apache/BSD/ISC, 0.5 MPL/LGPL, 0.1 GPL/AGPL,
+//                            0.1 proprietary/none (commercial monetization is
+//                            hardest under copyleft or unknown licensing).
+//   3. Saturation factor  = gently raises the score when few/no competitors
+//                            exist (open market) and lowers it when many close
+//                            competitors are found (crowded market).
+// The raw product is normalized to 0–100 with a log-ish curve so a repo with
+// strong demand + permissive license + few competitors tops the scale.
+
+export type CommercialScore = {
+  score: number; // 0–100
+  demandCount: number;
+  /** Mean cosine similarity of the matched demand signals (quality of match). */
+  meanCosine: number;
+  licenseWeight: number;
+  saturationFactor: number;
+  competitorCount: number;
+  components: {
+    demand: number;
+    license: number;
+    saturation: number;
+  };
+};
+
+// SPDX-ish license tokens map to a commercial-friendliness weight. We match
+// case-insensitively against the repo's license string (GitHub returns SPDX
+// ids like "MIT", "Apache-2.0", "GPL-3.0", or null).
+function licenseWeight(license: string | null | undefined): number {
+  if (!license) return 0.1; // unknown — treat conservatively
+  const l = license.toLowerCase();
+  // Permissive: full weight.
+  if (/\b(mit|apache|bsd|isc|unlicense|0bsd)\b/.test(l)) return 1.0;
+  // Weak copyleft / file-level: half weight (commercial use possible).
+  if (/\b(mpl|lgpl|epl|cddl)\b/.test(l)) return 0.5;
+  // Strong copyleft / proprietary: minimal weight.
+  return 0.1; // gpl, agpl, proprietary, etc.
+}
+
+/**
+ * Compute the commercial-potential score for a repo. On-demand: pulls the
+ * matched demand signals + competitors via the hybrid search layers and folds
+ * the three axes into a single 0–100 score. Cheap enough for per-request use
+ * at current volumes; the score is NOT stored (recomputed on demand).
+ */
+export function computeCommercialScore(
+  repo: Pick<Repo, "id" | "name" | "full_name" | "description" | "topics" | "license">,
+  repoEmbedding: number[] | null,
+  opts: { demandCandidates?: number; demandTopN?: number; competitorTopN?: number } = {},
+): CommercialScore {
+  // Use a larger candidate window for scoring so the noise gate — not an
+  // arbitrary cap — decides how many signals count. DEFAULT_TOP_N (10) would
+  // saturate for any repo with ≥10 matches, flattening the score.
+  const demandMatches = findRelatedDemandSignals(repo, repoEmbedding, {
+    candidates: opts.demandCandidates ?? DEFAULT_CANDIDATES,
+    topN: opts.demandTopN ?? 30,
+  });
+  const competitors = findCompetitors(repo, repoEmbedding, {
+    candidates: DEFAULT_CANDIDATES,
+    topN: opts.competitorTopN ?? DEFAULT_COMPETITOR_TOP_N,
+  });
+
+  const demandCount = demandMatches.length;
+  // Demand intensity = sum of cosine similarities of matched signals. This
+  // captures both quantity AND quality: 10 strong matches (0.75) outscore
+  // 10 weak ones (0.55), which count×meanRrf flattened.
+  const meanCosine =
+    demandCount > 0
+      ? demandMatches.reduce((s, m) => s + m.similarity, 0) / demandCount
+      : 0;
+  const demandIntensity = demandCount * meanCosine;
+  const licWeight = licenseWeight(repo.license);
+  const competitorCount = competitors.length;
+  // Mean competitor cosine: how close the nearest competitors are. High mean
+  // = crowded market (direct competitors exist); low = open niche.
+  const meanCompCosine =
+    competitorCount > 0
+      ? competitors.reduce((s, c) => s + c.similarity, 0) / competitorCount
+      : 0;
+
+  // Saturation: starts at 1.15 (open market). Each competitor trims ~4%, and
+  // strong proximity (mean cosine) trims further — a market with 5 direct
+  // competitors (0.85 cosine) is far more crowded than 5 weak ones (0.50).
+  // Bottoms at 0.6 so the score never collapses to zero from saturation alone.
+  const saturationFactor = Math.max(
+    0.6,
+    1.15 - competitorCount * 0.04 - Math.max(0, meanCompCosine - 0.5) * 0.3,
+  );
+
+  const raw = demandIntensity * licWeight * saturationFactor;
+
+  // Normalize to 0–100 with a sqrt curve: rewards having ANY signal but needs
+  // a lot of strong signals to max out. Clamped.
+  const score = Math.min(100, Math.round(Math.sqrt(raw) * 22));
+
+  return {
+    score,
+    demandCount,
+    meanCosine,
+    licenseWeight: licWeight,
+    saturationFactor,
+    competitorCount,
+    components: {
+      demand: Math.round(demandIntensity * 10) / 10,
+      license: licWeight,
+      saturation: Math.round(saturationFactor * 100) / 100,
+    },
+  };
 }
 
 // --- helpers --------------------------------------------------------------

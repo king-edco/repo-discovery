@@ -15,7 +15,8 @@
     "ingest-demand": "node --env-file-if-exists=.env.local --import tsx src/scripts/ingest-demand.ts",
     "reindex-search": "node --env-file-if-exists=.env.local --import tsx src/scripts/reindex-search.ts",
     "reembed": "node --env-file-if-exists=.env.local --import tsx src/scripts/reembed.ts",
-    "verify-embeddings": "node --env-file-if-exists=.env.local --import tsx src/scripts/verify-embeddings.ts"
+    "verify-embeddings": "node --env-file-if-exists=.env.local --import tsx src/scripts/verify-embeddings.ts",
+    "crawl-competitors": "node --env-file-if-exists=.env.local --import tsx src/scripts/crawl-competitors.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

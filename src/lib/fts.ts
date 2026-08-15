@@ -22,6 +22,13 @@ export function createFtsTables(): void {
       content,
       tokenize = 'porter unicode61'
     );
+    CREATE VIRTUAL TABLE IF NOT EXISTS competitors_fts USING fts5(
+      id UNINDEXED,
+      name,
+      description,
+      category,
+      tokenize = 'porter unicode61'
+    );
   `);
 }
 
@@ -48,7 +55,7 @@ export type FtsHit = { id: string; rank: number };
  * case) — the hybrid layer then falls back to vector-only.
  */
 function ftsSearch(
-  table: "repos_fts" | "demand_signals_fts",
+  table: "repos_fts" | "demand_signals_fts" | "competitors_fts",
   query: string | null,
   k: number,
 ): FtsHit[] {
@@ -81,6 +88,10 @@ export function ftsSearchDemandSignals(query: string | null, k: number): FtsHit[
   return ftsSearch("demand_signals_fts", query, k);
 }
 
+export function ftsSearchCompetitors(query: string | null, k: number): FtsHit[] {
+  return ftsSearch("competitors_fts", query, k);
+}
+
 /** Upsert a repo's text into the FTS index (delete + reinsert by id). */
 export function upsertRepoFts(
   repoId: string,
@@ -106,4 +117,18 @@ export function upsertDemandFts(
   db.prepare(
     "INSERT INTO demand_signals_fts (id, title, content) VALUES (?, ?, ?)",
   ).run(signalId, title ?? "", content ?? "");
+}
+
+/** Upsert a competitor's text into the FTS index (delete + reinsert by id). */
+export function upsertCompetitorFts(
+  competitorId: string,
+  name: string,
+  description: string | null | undefined,
+  category: string | null | undefined,
+): void {
+  const db = getSqlite();
+  db.prepare("DELETE FROM competitors_fts WHERE id = ?").run(competitorId);
+  db.prepare(
+    "INSERT INTO competitors_fts (id, name, description, category) VALUES (?, ?, ?, ?)",
+  ).run(competitorId, name ?? "", description ?? "", category ?? "");
 }

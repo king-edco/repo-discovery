@@ -59,6 +59,10 @@ export function createVecTables(): void {
       signal_id TEXT PRIMARY KEY,
       embedding float[${EMBEDDING_DIM}]
     );
+    CREATE VIRTUAL TABLE IF NOT EXISTS competitor_vectors USING vec0(
+      competitor_id TEXT PRIMARY KEY,
+      embedding float[${EMBEDDING_DIM}]
+    );
   `);
 }
 
@@ -104,6 +108,17 @@ export function upsertDemandVector(signalId: string, vec: number[] | null): void
   }
 }
 
+/** Upsert a commercial competitor's vector into the vec0 index. */
+export function upsertCompetitorVector(competitorId: string, vec: number[] | null): void {
+  const db = getSqlite();
+  db.prepare("DELETE FROM competitor_vectors WHERE competitor_id = ?").run(competitorId);
+  if (vec && vec.length === EMBEDDING_DIM) {
+    db.prepare(
+      "INSERT INTO competitor_vectors (competitor_id, embedding) VALUES (?, ?)",
+    ).run(competitorId, encodeVector(vec));
+  }
+}
+
 export type VectorHit = { id: string; distance: number };
 
 /**
@@ -113,7 +128,12 @@ export type VectorHit = { id: string; distance: number };
  * is the cosine ordering — the absolute distance is converted to cosine at the
  * call site via distanceToCosine.
  */
-function knnSearch(table: "repo_vectors" | "demand_vectors", idCol: string, query: number[], k: number): VectorHit[] {
+function knnSearch(
+  table: "repo_vectors" | "demand_vectors" | "competitor_vectors",
+  idCol: string,
+  query: number[],
+  k: number,
+): VectorHit[] {
   const db = getSqlite();
   const rows = db
     .prepare(
@@ -133,6 +153,10 @@ export function knnRepos(query: number[], k: number): VectorHit[] {
 
 export function knnDemandSignals(query: number[], k: number): VectorHit[] {
   return knnSearch("demand_vectors", "signal_id", query, k);
+}
+
+export function knnCompetitors(query: number[], k: number): VectorHit[] {
+  return knnSearch("competitor_vectors", "competitor_id", query, k);
 }
 
 /**

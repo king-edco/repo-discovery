@@ -1,14 +1,15 @@
 import { isNotNull } from "drizzle-orm";
 import { getDb, getSqlite } from "@/db";
-import { demandSignals, repos } from "@/db/schema";
+import { demandSignals, marketCompetitors, repos } from "@/db/schema";
 import {
   createVecTables,
   decodeJsonEmbedding,
   ensureVecExtension,
+  upsertCompetitorVector,
   upsertDemandVector,
   upsertRepoVector,
 } from "@/lib/vector-db";
-import { createFtsTables, upsertDemandFts, upsertRepoFts } from "@/lib/fts";
+import { createFtsTables, upsertCompetitorFts, upsertDemandFts, upsertRepoFts } from "@/lib/fts";
 
 // Rebuild the sqlite-vec (vec0) and FTS5 search indexes from the canonical
 // data in `repos` / `demand_signals`. The JSON `embedding` column remains the
@@ -23,8 +24,10 @@ function dropIndexes(): void {
   db.exec(`
     DROP TABLE IF EXISTS repo_vectors;
     DROP TABLE IF EXISTS demand_vectors;
+    DROP TABLE IF EXISTS competitor_vectors;
     DROP TABLE IF EXISTS repos_fts;
     DROP TABLE IF EXISTS demand_signals_fts;
+    DROP TABLE IF EXISTS competitors_fts;
   `);
 }
 
@@ -95,6 +98,33 @@ function main(): void {
   }
   console.log(
     `[reindex] demand_signals: ${signalRows.length} rows — ${sigVec} vectors, ${sigFts} FTS docs`,
+  );
+
+  // --- market competitors: vector + FTS ---
+  const competitorRows = db
+    .select({
+      id: marketCompetitors.id,
+      name: marketCompetitors.name,
+      description: marketCompetitors.description,
+      category: marketCompetitors.category,
+      embedding: marketCompetitors.embedding,
+    })
+    .from(marketCompetitors)
+    .all();
+
+  let compVec = 0;
+  let compFts = 0;
+  for (const c of competitorRows) {
+    const vec = decodeJsonEmbedding(c.embedding);
+    if (vec) {
+      upsertCompetitorVector(c.id, vec);
+      compVec++;
+    }
+    upsertCompetitorFts(c.id, c.name, c.description, c.category);
+    compFts++;
+  }
+  console.log(
+    `[reindex] market_competitors: ${competitorRows.length} rows — ${compVec} vectors, ${compFts} FTS docs`,
   );
 
   const elapsed = ((Date.now() - t0) / 1000).toFixed(2);

@@ -192,3 +192,55 @@ Package manager: **pnpm** (`packageManager: pnpm@11.20.0`).
   ranked list + the FTS5 BM25 ranked list. A noise gate (cosine floor ~0.3)
   drops near-zero vector hits before fusion. Each result carries `matchedBy`
   (`vector` | `fts` | `both`) provenance.
+
+## Commercial competitors + potential score
+
+- **Source: Wikidata SPARQL** (`src/lib/competitor-sources.ts`). The public
+  endpoint (`https://query.wikidata.org/sparql`) returns software entities with
+  license (P275), website (P856), language (P277) in one query per class. Free,
+  no API key, no per-key cap — pace by class (~1.5s apart). `pnpm
+  crawl-competitors` populates `market_competitors` + embeds each product.
+  `--only-stale` re-crawls products not refreshed in 7 days.
+- **AlternativeTo was evaluated and dropped.** Its pages are Cloudflare-
+  protected and client-side rendered, so a static CheerioCrawler extracts
+  zero products and a headless crawler is slow + block-prone. Wikidata is the
+  robust, scalable choice; AlternativeTo's "alternatives" graph is not worth
+  the brittleness at production scale.
+- **SPARQL performance:** use DIRECT `P31 wd:Q...` (no `P279*` recursion).
+  Recursive property paths time out the public endpoint (504). The class list
+  in `WIKIDATA_SOFTWARE_CLASSES` covers ~30 software categories via direct
+  P31; one POST per class, LIMIT 400.
+- **Matching:** `findCompetitors(repo, repoVec)` reuses the same hybrid search
+  over `competitor_vectors` / `competitors_fts`. Embedding-driven, so it works
+  for any repo without category wiring. Noise gate: cosine ≥ 0.45.
+- **Commercial score** (`computeCommercialScore`, on-demand, never stored):
+  0–100 = sqrt(demand_intensity × license_weight × saturation) × 22, clamped.
+  - demand_intensity = Σ cosine of matched demand signals (quality + quantity)
+  - license_weight: 1.0 MIT/Apache/BSD, 0.5 MPL/LGPL, 0.1 GPL/AGPL/unknown
+  - saturation: 1.15 base − 0.04/competitor − proximity penalty (mean comp
+    cosine > 0.5), floor 0.6. Rewards open niches, penalizes crowded markets.
+- **Feed pagination:** `/api/repos` now paginates (`limit`/`offset`, default
+  24) instead of returning every row. `sort=score` computes the commercial
+  score for a candidate window (stars-desc, capped at 500) and returns the
+  top page. The client (`useRepoFeed`) infinite-scrolls via `loadMore()`.
+
+## Scalability roadmap (current limits + swap points)
+
+- **sqlite-vec**: fine to ~100k vectors per table; KNN is a full scan. Beyond
+  that, swap `competitor_vectors`/`repo_vectors`/`demand_vectors` for a
+  dedicated ANN backend (Qdrant/LanceDB via the same `knn*` interface in
+  `vector-db.ts`). The JSON `embedding` column is the source of truth, so the
+  migration is: spin up the backend, bulk-load from the column, swap the
+  `knn*` implementation. No schema change.
+- **Embedding generation**: Transformers.js (multilingual-e5-small, 384-dim)
+  runs ONNX in-process. At crawl time this is the bottleneck (8-wide batch).
+  For millions of competitors, move embedding to a dedicated service
+  (sentence-transformers behind an HTTP API) and have `crawl-competitors`
+  call it instead of `getEmbedder()`.
+- **SQLite → Postgres**: better-sqlite3 caps at single-machine concurrency.
+  Drizzle makes the swap mechanical: change the driver, keep the schema.
+  `vec0` tables become `pgvector`; `FTS5` becomes `tsvector`/`tsquery`.
+- **Demand corpus**: the score's discriminating power depends on a diverse
+  demand corpus. With only ~20 signals that pass the noise gate, scores
+  saturate. Grow the corpus (more Currents/HN/StackExchange ingestion) for
+  meaningful differentiation across repos.

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RepoCard } from "@/components/repo-card";
-import { useOnlineStatus, useRepoFeed } from "@/lib/use-feed";
+import { useOnlineStatus, useRepoFeed, type FeedSort } from "@/lib/use-feed";
 import { useSettings } from "@/lib/settings";
 import type { Repo } from "@/lib/types";
 
@@ -14,7 +14,9 @@ type SearchState =
   | { mode: "offline-no-cache" }
   | { mode: "error" };
 
-const PAGE_SIZE = 8;
+// Score threshold for showing the commercial-potential pill on a card. Below
+// this the score is marginal and the badge would add noise without signal.
+const SCORE_PILL_THRESHOLD = 30;
 
 function ConnectionBadge({ online }: { online: boolean }) {
   return (
@@ -33,13 +35,44 @@ function ConnectionBadge({ online }: { online: boolean }) {
   );
 }
 
+function SortToggle({
+  sort,
+  onSort,
+}: {
+  sort: FeedSort;
+  onSort: (s: FeedSort) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-full border border-input bg-card p-0.5 text-xs">
+      <button
+        type="button"
+        onClick={() => onSort("stars")}
+        className={`rounded-full px-3 py-1 font-medium transition-colors ${
+          sort === "stars" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        Étoiles
+      </button>
+      <button
+        type="button"
+        onClick={() => onSort("score")}
+        className={`rounded-full px-3 py-1 font-medium transition-colors ${
+          sort === "score" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        Potentiel commercial
+      </button>
+    </div>
+  );
+}
+
 export function RepoFeed() {
   const { settings } = useSettings();
   const minStars = settings.minStars;
-  const { repos, loading, error, online, reload } = useRepoFeed(minStars);
+  const [sort, setSort] = useState<FeedSort>("stars");
+  const { repos, loading, loadingMore, hasMore, error, online, reload, loadMore } = useRepoFeed(minStars, sort);
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState<SearchState>({ mode: "idle" });
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   // Debounced search: fires when the user stops typing for 350ms.
@@ -76,35 +109,22 @@ export function RepoFeed() {
     search.mode === "results" || search.mode === "loading" || query.trim() !== "";
   const list = search.mode === "results" ? search.repos : repos;
 
-  // Reset the infinite-scroll window when the list identity changes (switching
-  // between feed / search results). This is React's documented "adjust state
-  // during render" pattern — not an effect, so it avoids cascading renders.
-  const [trackedList, setTrackedList] = useState(list);
-  if (trackedList !== list) {
-    setTrackedList(list);
-    setVisibleCount(PAGE_SIZE);
-  }
-
-  const hasMore = list.length > visibleCount;
-  const showMore = useCallback(() => {
-    setVisibleCount((c) => c + PAGE_SIZE);
-  }, []);
-
-  // Infinite scroll via IntersectionObserver on a sentinel element.
+  // Infinite scroll via IntersectionObserver on a sentinel element. The feed
+  // is now server-paginated, so hitting the sentinel fetches the next page.
   useEffect(() => {
     const sentinel = sentinelRef.current;
-    if (!sentinel || !hasMore) return;
+    if (!sentinel || !hasMore || showingSearch) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting) {
-          showMore();
+          void loadMore();
         }
       },
       { rootMargin: "600px" },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMore, showMore]);
+  }, [hasMore, loadMore, showingSearch]);
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-background">
@@ -114,6 +134,8 @@ export function RepoFeed() {
         online={online}
         loading={loading}
         onReload={reload}
+        sort={sort}
+        onSort={setSort}
       />
 
       <main className="mx-auto w-full max-w-screen-2xl px-4 pb-20 pt-6 sm:px-5">
@@ -164,22 +186,32 @@ export function RepoFeed() {
           list.length > 0 ? (
             <>
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
-                {list.slice(0, visibleCount).map((repo) => (
-                  <RepoCard key={repo.id} repo={repo} />
+                {list.map((repo) => (
+                  <RepoCard
+                    key={repo.id}
+                    repo={repo}
+                    scorePill={
+                      repo.commercialScore !== undefined && repo.commercialScore >= SCORE_PILL_THRESHOLD
+                        ? repo.commercialScore
+                        : undefined
+                    }
+                  />
                 ))}
               </div>
-              {hasMore ? (
+              {!showingSearch && hasMore ? (
                 <div ref={sentinelRef} className="py-8 text-center">
                   <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-                    <span className="size-4 animate-spin rounded-full border-2 border-muted border-t-foreground" />
-                    Chargement…
+                    {loadingMore ? (
+                          <span className="size-4 animate-spin rounded-full border-2 border-muted border-t-foreground" />
+                    ) : null}
+                    {loadingMore ? "Chargement…" : "Faire défiler pour plus"}
                   </span>
                 </div>
-              ) : (
+              ) : !showingSearch ? (
                 <p className="pt-10 text-center text-sm text-muted-foreground">
                   Vous êtes à la fin du feed.
                 </p>
-              )}
+              ) : null}
             </>
           ) : showingSearch && search.mode !== "loading" ? (
             <p className="py-16 text-center text-sm text-muted-foreground">
@@ -198,12 +230,16 @@ function StickyHeader({
   online,
   loading,
   onReload,
+  sort,
+  onSort,
 }: {
   query: string;
   onQuery: (v: string) => void;
   online: boolean;
   loading: boolean;
   onReload: () => void;
+  sort: FeedSort;
+  onSort: (s: FeedSort) => void;
 }) {
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-background/80 backdrop-blur-xl">
@@ -213,6 +249,7 @@ function StickyHeader({
             Foundry
           </h1>
           <div className="flex items-center gap-2">
+            <SortToggle sort={sort} onSort={onSort} />
             <Link
               href="/settings"
               className="inline-flex size-8 items-center justify-center rounded-full border border-input bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"

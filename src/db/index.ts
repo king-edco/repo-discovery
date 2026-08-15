@@ -85,6 +85,20 @@ function createDb(): DB {
       count INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS market_competitors (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      category TEXT,
+      source_url TEXT NOT NULL,
+      website TEXT,
+      license TEXT,
+      language TEXT,
+      crawled_at TEXT NOT NULL,
+      embedding TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_market_competitors_category ON market_competitors(category);
   `);
 
   // Add the embedding column to pre-existing repos tables (no-op if present).
