@@ -7,6 +7,8 @@ import { resolve } from "node:path";
 import { getDb } from "@/db";
 import { repos, type NewRepo } from "@/db/schema";
 import { getEmbedder } from "@/lib/embeddings";
+import { upsertRepoVector } from "@/lib/vector-db";
+import { upsertRepoFts } from "@/lib/fts";
 import { TOPICS } from "@/lib/topics";
 
 const README_MAX_CHARS = 3000;
@@ -324,6 +326,12 @@ function upsertRepo(
       },
     })
     .run();
+
+  // Keep the search indexes in sync with the canonical row. The vec0 index
+  // needs the parsed vector; the FTS5 index needs the searchable text fields.
+  const vec = embeddingJson ? (JSON.parse(embeddingJson) as number[]) : null;
+  upsertRepoVector(repo.id, vec);
+  upsertRepoFts(repo.id, repo.full_name, repo.description, repo.readme_text);
 }
 
 function countRepos(db: ReturnType<typeof getDb>): number {

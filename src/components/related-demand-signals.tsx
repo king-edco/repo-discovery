@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { DemandSignalMatch } from "@/lib/demand-matching";
+import type { DemandSignalMatch } from "@/lib/hybrid-search";
 
 // Source metadata: label + accent classes for the badge. Each demand source
 // gets a distinct color so the badge is recognizable at a glance.

@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { repos } from "@/db/schema";
-import { findRelatedDemandSignals } from "@/lib/demand-matching";
+import { findRelatedDemandSignals } from "@/lib/hybrid-search";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,14 @@ export async function GET(
 
   const db = getDb();
   const repo = db
-    .select({ id: repos.id, embedding: repos.embedding })
+    .select({
+      id: repos.id,
+      name: repos.name,
+      full_name: repos.full_name,
+      description: repos.description,
+      topics: repos.topics,
+      embedding: repos.embedding,
+    })
     .from(repos)
     .where(eq(repos.id, id))
     .get();
@@ -22,27 +29,23 @@ export async function GET(
     return Response.json({ error: "Repo not found." }, { status: 404 });
   }
 
-  const repoVec = repo.embedding ? (JSON.parse(repo.embedding) as number[]) : null;
+  const repoVec = repo.embedding
+    ? (JSON.parse(repo.embedding) as number[])
+    : null;
 
   const { searchParams } = new URL(request.url);
-  const minRaw = searchParams.get("minSimilarity");
   const topRaw = searchParams.get("topN");
 
-  const minSimilarity =
-    minRaw !== null && Number.isFinite(Number(minRaw)) && Number(minRaw) >= 0 && Number(minRaw) <= 1
-      ? Number(minRaw)
-      : undefined;
   const topN =
     topRaw !== null && Number.isFinite(Number(topRaw)) && Number(topRaw) > 0
       ? Math.min(Math.floor(Number(topRaw)), 50)
       : undefined;
 
-  const matches = findRelatedDemandSignals(repoVec, { minSimilarity, topN });
+  const matches = findRelatedDemandSignals(repo, repoVec, { topN });
 
   return Response.json({
     repoId: repo.id,
     count: matches.length,
-    minSimilarity: minSimilarity ?? 0.75,
     results: matches,
   });
 }

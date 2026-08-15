@@ -2,6 +2,8 @@ import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { demandSignals, type NewDemandSignal } from "@/db/schema";
 import { getEmbedder } from "@/lib/embeddings";
+import { upsertDemandVector } from "@/lib/vector-db";
+import { upsertDemandFts } from "@/lib/fts";
 import { DEMAND_NICHES } from "@/lib/demand-niches";
 import {
   buildClients,
@@ -129,6 +131,16 @@ async function main() {
           upserted += res.changes;
         }
       });
+
+      // Sync the search indexes (vec0 + FTS5) with the canonical rows. Done
+      // outside the Drizzle transaction because vec0/FTS5 use raw SQL on the
+      // better-sqlite3 handle; the indexes are rebuildable via reindex-search
+      // if this step is ever interrupted.
+      for (const row of rows) {
+        const vec = row.embedding ? (JSON.parse(row.embedding) as number[]) : null;
+        upsertDemandVector(row.id, vec);
+        upsertDemandFts(row.id, row.title, row.content);
+      }
 
       totalFetched += items.length;
       totalUpserted += upserted;

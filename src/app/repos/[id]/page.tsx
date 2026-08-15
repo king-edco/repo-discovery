@@ -5,7 +5,7 @@ import { getDb } from "@/db";
 import { repos } from "@/db/schema";
 import { Markdown } from "@/components/markdown";
 import { RelatedDemandSignals } from "@/components/related-demand-signals";
-import { findRelatedDemandSignals } from "@/lib/demand-matching";
+import { findRelatedDemandSignals } from "@/lib/hybrid-search";
 import { formatCount, langColor, parseTopics, previewImage } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -64,12 +64,11 @@ export default async function RepoDetailPage({
 
   const topics = parseTopics(repo.topics);
 
-  // Demand-signal matching: both the repo and the signals share the same
-  // multilingual-e5-small 384-dim vector space, so cosine similarity is a
-  // direct semantic-distance proxy. Below-threshold matches are dropped —
-  // we show an explicit empty state rather than forcing weak results.
+  // Demand-signal matching via hybrid search: sqlite-vec KNN (cosine) + FTS5
+  // BM25, fused by Reciprocal Rank Fusion. Captures both semantic neighbours
+  // and exact-term lexical matches the embedding alone would smooth over.
   const repoVec = repo.embedding ? (JSON.parse(repo.embedding) as number[]) : null;
-  const demandMatches = findRelatedDemandSignals(repoVec);
+  const demandMatches = findRelatedDemandSignals(repo, repoVec);
 
   return (
     <main className="min-h-screen bg-background">
