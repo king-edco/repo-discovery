@@ -2,9 +2,9 @@ import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { repos } from "./schema";
+import { schema } from "./schema";
 
-export type DB = BetterSQLite3Database<typeof import("./schema")>;
+export type DB = BetterSQLite3Database<typeof schema>;
 
 const DB_PATH = resolve(process.cwd(), "data/foundry.db");
 
@@ -21,7 +21,7 @@ function createDb(): DB {
   const sqlite = new Database(DB_PATH);
   sqlite.pragma("journal_mode = WAL");
 
-  const db = drizzle(sqlite, { schema: { repos } });
+  const db = drizzle(sqlite, { schema });
 
   // Simple migration: create the table if it does not exist.
   sqlite.exec(`
@@ -40,12 +40,41 @@ function createDb(): DB {
       pushed_at TEXT NOT NULL,
       ingested_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS demand_signals (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      external_id TEXT NOT NULL,
+      niche_keyword TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT,
+      url TEXT,
+      score INTEGER NOT NULL DEFAULT 0,
+      num_comments INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      ingested_at TEXT NOT NULL,
+      embedding TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_demand_signals_source ON demand_signals(source);
+    CREATE INDEX IF NOT EXISTS idx_demand_signals_created_at ON demand_signals(created_at);
+
+    CREATE TABLE IF NOT EXISTS demand_quota (
+      source TEXT PRIMARY KEY,
+      date TEXT NOT NULL,
+      count INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
   `);
 
-  // Add the embedding column to pre-existing tables (no-op if present).
-  const cols = sqlite.prepare("PRAGMA table_info(repos)").all() as { name: string }[];
-  if (!cols.some((c) => c.name === "embedding")) {
+  // Add the embedding column to pre-existing repos tables (no-op if present).
+  const repoCols = sqlite.prepare("PRAGMA table_info(repos)").all() as { name: string }[];
+  if (!repoCols.some((c) => c.name === "embedding")) {
     sqlite.exec("ALTER TABLE repos ADD COLUMN embedding TEXT;");
+  }
+  // Add the embedding column to pre-existing demand_signals tables.
+  const dsCols = sqlite.prepare("PRAGMA table_info(demand_signals)").all() as { name: string }[];
+  if (!dsCols.some((c) => c.name === "embedding")) {
+    sqlite.exec("ALTER TABLE demand_signals ADD COLUMN embedding TEXT;");
   }
 
   return db;
