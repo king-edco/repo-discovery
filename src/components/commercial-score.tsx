@@ -1,3 +1,4 @@
+import { DollarSign } from "lucide-react";
 import type { CommercialScore } from "@/lib/hybrid-search";
 
 // Visual gauge for the 0–100 commercial-potential score. The label + colour
@@ -79,10 +80,7 @@ export function CommercialScorePill({ score }: { score: number }) {
       className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold tabular-nums ${b.cls}`}
       title={`Potentiel commercial : ${score}/100 (${b.label})`}
     >
-      <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M12 2v20" />
-        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-      </svg>
+      <DollarSign className="size-3" />
       {score}
     </span>
   );

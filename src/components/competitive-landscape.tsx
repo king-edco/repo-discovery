@@ -1,23 +1,5 @@
+import { ExternalLink, Scale, Building2 } from "lucide-react";
 import type { CompetitorMatch } from "@/lib/hybrid-search";
-
-function ExternalLinkIcon() {
-  return (
-    <svg
-      className="size-3.5 shrink-0 text-muted-foreground"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M15 3h6v6" />
-      <path d="M10 14 21 3" />
-      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-    </svg>
-  );
-}
 
 function MatchBadge({ matchedBy }: { matchedBy: CompetitorMatch["matchedBy"] }) {
   const meta = {
@@ -71,13 +53,7 @@ function CompetitorCard({ competitor }: { competitor: CompetitorMatch }) {
       <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
         {competitor.license ? (
           <span className="inline-flex items-center gap-1">
-            <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 3v18" />
-              <path d="M3 7l4-4 4 4" />
-              <path d="M3 7h8" />
-              <path d="M13 17l4 4 4-4" />
-              <path d="M13 17h8" />
-            </svg>
+            <Scale className="size-3.5" />
             {competitor.license}
           </span>
         ) : null}
@@ -90,7 +66,7 @@ function CompetitorCard({ competitor }: { competitor: CompetitorMatch }) {
             className="ml-auto inline-flex items-center gap-1 font-medium text-primary transition-colors hover:text-primary/80"
           >
             {host ?? "Fiche Wikidata"}
-            <ExternalLinkIcon />
+            <ExternalLink className="size-3.5" />
           </a>
         ) : null}
       </div>
@@ -118,19 +94,7 @@ export function CompetitiveLandscape({
 
       {competitors.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/30 px-4 py-10 text-center">
-          <svg
-            className="size-6 text-muted-foreground/60"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-            <path d="M9 22V12h6v10" />
-          </svg>
+          <Building2 className="size-6 text-muted-foreground/60" />
           <p className="text-sm font-medium text-foreground">
             Aucun concurrent détecté pour ce dépôt
           </p>

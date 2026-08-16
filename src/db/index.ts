@@ -99,12 +99,51 @@ function createDb(): DB {
       embedding TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_market_competitors_category ON market_competitors(category);
+
+    CREATE TABLE IF NOT EXISTS repo_feedback (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      repo_id TEXT NOT NULL,
+      feedback TEXT NOT NULL,
+      reason TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_repo_feedback_user_repo ON repo_feedback(user_id, repo_id);
+
+    CREATE TABLE IF NOT EXISTS user_interests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      topic TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_user_interests_user_topic ON user_interests(user_id, topic);
+
+    CREATE TABLE IF NOT EXISTS user_profile (
+      user_id TEXT PRIMARY KEY,
+      embedding TEXT,
+      liked_repo_ids TEXT NOT NULL DEFAULT '[]',
+      disliked_repo_ids TEXT NOT NULL DEFAULT '[]',
+      updated_at TEXT NOT NULL
+    );
   `);
 
   // Add the embedding column to pre-existing repos tables (no-op if present).
   const repoCols = sqlite.prepare("PRAGMA table_info(repos)").all() as { name: string }[];
   if (!repoCols.some((c) => c.name === "embedding")) {
     sqlite.exec("ALTER TABLE repos ADD COLUMN embedding TEXT;");
+  }
+  // Add the AI enrichment columns to repos (no-op if present).
+  if (!repoCols.some((c) => c.name === "plain_summary")) {
+    sqlite.exec("ALTER TABLE repos ADD COLUMN plain_summary TEXT;");
+  }
+  if (!repoCols.some((c) => c.name === "business_pitch")) {
+    sqlite.exec("ALTER TABLE repos ADD COLUMN business_pitch TEXT;");
+  }
+  if (!repoCols.some((c) => c.name === "enrichment_source")) {
+    sqlite.exec("ALTER TABLE repos ADD COLUMN enrichment_source TEXT;");
+  }
+  if (!repoCols.some((c) => c.name === "enriched_at")) {
+    sqlite.exec("ALTER TABLE repos ADD COLUMN enriched_at TEXT;");
   }
   // Add the embedding column to pre-existing demand_signals tables.
   const dsCols = sqlite.prepare("PRAGMA table_info(demand_signals)").all() as { name: string }[];
