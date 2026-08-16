@@ -4,6 +4,10 @@ import { notFound } from "next/navigation";
 import { getDb } from "@/db";
 import { repos } from "@/db/schema";
 import { Markdown } from "@/components/markdown";
+import { RelatedDemandSignals } from "@/components/related-demand-signals";
+import { CompetitiveLandscape } from "@/components/competitive-landscape";
+import { CommercialScoreCard } from "@/components/commercial-score";
+import { computeCommercialScore, findCompetitors, findRelatedDemandSignals } from "@/lib/hybrid-search";
 import { formatCount, langColor, parseTopics, previewImage } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -52,6 +56,7 @@ export default async function RepoDetailPage({
       topics: repos.topics,
       pushed_at: repos.pushed_at,
       ingested_at: repos.ingested_at,
+      embedding: repos.embedding,
     })
     .from(repos)
     .where(eq(repos.id, id))
@@ -60,6 +65,21 @@ export default async function RepoDetailPage({
   if (!repo) notFound();
 
   const topics = parseTopics(repo.topics);
+
+  // Demand-signal matching via hybrid search: sqlite-vec KNN (cosine) + FTS5
+  // BM25, fused by Reciprocal Rank Fusion. Captures both semantic neighbours
+  // and exact-term lexical matches the embedding alone would smooth over.
+  const repoVec = repo.embedding ? (JSON.parse(repo.embedding) as number[]) : null;
+  const demandMatches = findRelatedDemandSignals(repo, repoVec);
+
+  // Commercial competitors (Wikidata corpus) via the same hybrid search over
+  // market_competitors. Embedding-driven, so it works for any repo without
+  // category wiring.
+  const competitors = findCompetitors(repo, repoVec);
+
+  // On-demand 0–100 commercial-potential score folding demand intensity,
+  // license weight, and competitive saturation. Not stored.
+  const commercialScore = computeCommercialScore(repo, repoVec);
 
   return (
     <main className="min-h-screen bg-background">
@@ -188,6 +208,21 @@ export default async function RepoDetailPage({
             </p>
           )}
         </section>
+
+        <hr className="my-8 border-border" />
+
+        {/* Commercial potential score */}
+        <CommercialScoreCard score={commercialScore} />
+
+        <hr className="my-8 border-border" />
+
+        {/* Competitive landscape */}
+        <CompetitiveLandscape competitors={competitors} />
+
+        <hr className="my-8 border-border" />
+
+        {/* Demand-signal matching */}
+        <RelatedDemandSignals signals={demandMatches} />
       </div>
     </main>
   );

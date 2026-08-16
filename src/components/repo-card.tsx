@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Repo } from "@/lib/types";
+import { CommercialScorePill } from "@/components/commercial-score";
 import { formatCount, langColor, previewDescription, previewImage } from "@/lib/format";
 
 function StarIcon({ className }: { className?: string }) {
@@ -22,7 +23,7 @@ function ScaleIcon({ className }: { className?: string }) {
   );
 }
 
-export function RepoCard({ repo }: { repo: Repo }) {
+export function RepoCard({ repo, scorePill }: { repo: Repo; scorePill?: number }) {
   const description = previewDescription(repo.description, repo.readme_text);
   return (
     <Link
@@ -37,6 +38,11 @@ export function RepoCard({ repo }: { repo: Repo }) {
           loading="lazy"
           className="h-auto w-full transition-transform duration-500 group-hover:scale-[1.03]"
         />
+        {scorePill !== undefined ? (
+          <div className="absolute right-2 top-2">
+            <CommercialScorePill score={scorePill} />
+          </div>
+        ) : null}
       </div>
 
       <div className="flex flex-1 flex-col gap-3 p-5">

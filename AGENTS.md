@@ -35,6 +35,10 @@ Package manager: **pnpm** (`packageManager: pnpm@11.20.0`).
 - `pnpm db:generate|db:migrate|db:studio` (drizzle-kit)
 - `pnpm ingest` — `src/scripts/ingest.ts` (needs `GITHUB_TOKEN` in `.env.local`)
 - `pnpm verify-embeddings` — checks embedding count + dimension (384) + norm (≈1)
+- `pnpm reindex-search` — rebuilds vec0 + FTS5 search indexes from canonical
+  JSON `embedding` columns (idempotent; run after model change or index drift)
+- `pnpm ingest-demand` — `src/scripts/ingest-demand.ts` (HN / Stack Exchange /
+  Currents; needs `CURRENTS_API_KEY` for Currents)
 
 ## Source map
 - `src/db/schema.ts` — `repos` table (see README for columns). `embedding` is
@@ -42,6 +46,15 @@ Package manager: **pnpm** (`packageManager: pnpm@11.20.0`).
 - `src/db/index.ts` — `getDb()` singleton; auto `CREATE TABLE IF NOT EXISTS` +
   `ALTER TABLE ... ADD COLUMN embedding` for pre-existing DBs.
 - `src/lib/embeddings.ts` — `getEmbedder()` + `cosineSimilarity()`.
+- `src/lib/vector-db.ts` — `vec0` virtual tables (sqlite-vec) for repos +
+  demand_signals; KNN search; upsert/delete helpers. `ensureVecExtension()`
+  loads the native extension via `getLoadablePath()`.
+- `src/lib/fts.ts` — FTS5 virtual tables for repos + demand_signals; BM25
+  search; `buildFtsQuery()` (OR-joined quoted terms, FTS5-safe).
+- `src/lib/hybrid-search.ts` — RRF fusion (k=60) of vec KNN + FTS5 BM25,
+  noise gate (cosine floor), `searchDemandSignals()` + `searchRepos()`.
+- `src/lib/demand-niches.ts` — niche keyword definitions for demand ingestion.
+- `src/lib/demand-sources.ts` — HN / Stack Exchange / Currents fetch clients.
 - `src/lib/topics.ts` — curated 134 GitHub topics for ingestion strategies.
 - `src/lib/types.ts` — shared `Repo` / `SearchResult` shapes.
 - `src/lib/use-feed.ts` — client hook fetching the repo feed.
@@ -49,10 +62,12 @@ Package manager: **pnpm** (`packageManager: pnpm@11.20.0`).
 - `src/scripts/verify-embeddings.ts` — embedding sanity check.
 - `src/app/api/repos/route.ts` — `GET /api/repos`, all repos, stars desc,
   excludes `embedding`. Accepts `?minStars=N` (gte filter).
-- `src/app/api/search/route.ts` — `GET /api/search?q=`, in-memory cosine
-  similarity over stored embeddings, returns sorted hits + `similarity`,
-  excludes `embedding`. `400` on missing/empty `q`. Accepts `?minStars=N`
-  (post-filter on results).
+- `src/app/api/search/route.ts` — `GET /api/search?q=`, **hybrid search**
+  (sqlite-vec KNN + FTS5 BM25 via RRF fusion) over the vec0/FTS5 indexes.
+  Returns sorted hits + `similarity` + `matchedBy` (`vector`|`fts`|`both`),
+  excludes `embedding`. `400` on missing/empty `q`. Accepts `?minStars=N`.
+- `src/app/api/repos/[id]/demand-signals/route.ts` — `GET`, returns demand
+  signals related to a repo via hybrid search. Accepts `?topN=N` (≤50).
 - `src/app/api/og/[...slug]/route.ts` — proxy that fetches a repo's opengraph
   preview from githubassets, runs `sharp.trim()` to strip white padding so the
   image renders edge-to-edge in the card, returns PNG. In-memory cache (1h TTL),
@@ -146,3 +161,86 @@ Package manager: **pnpm** (`packageManager: pnpm@11.20.0`).
   wrap as `new Response(new Uint8Array(buf), …)`.
 - French UI text with apostrophes must use the curly `'` (U+2019), not `'`, or
   eslint's `react/no-unescaped-entities` errors.
+
+## Hybrid search (sqlite-vec + FTS5) — gotchas
+- **Embedding model changed** to `intfloat/multilingual-e5-small` (still
+  384-dim) for cross-lingual search; prefix `query:` / `passage:` per the
+  model card. See `src/lib/embeddings.ts`.
+- **sqlite-vec native extension + Next.js production bundle:** `getLoadablePath()`
+  from the `sqlite-vec` package uses `require.resolve` on a platform-specific
+  optional dependency (`sqlite-vec-linux-x64`), which breaks inside a webpack
+  server bundle (`{}.resolve is not a function`). Fix: list `sqlite-vec` AND
+  its platform packages in `next.config.ts` `serverExternalPackages` so they
+  resolve against real `node_modules` at runtime. Without this, vec0 tables are
+  silently disabled at server start (caught + warned in `createVecTables`).
+- **Double-Database-handle bug:** `getSqlite()` and `getDb()` must share ONE
+  `better-sqlite3` handle. `createDb()` assigns BOTH `__foundrySqlite` and
+  `__foundryDb` globals; getters only call `createDb()` when their global is
+  unset. If a getter calls `createDb()` without assigning the other global,
+  the second getter creates a NEW `Database` on the same file → the vec0
+  extension is loaded on one handle but queries run on the other → "no such
+  module: vec0". Keep both globals in sync inside `createDb()`.
+- **vec0 + FTS5 are rebuildable search indexes**, not source of truth. The
+  canonical 384-dim embedding lives in the JSON `embedding` TEXT column on the
+  `repos` / `demand_signals` tables. `pnpm reindex-search` rebuilds both
+  indexes from that column (idempotent — drop + recreate + repopulate).
+  `ingest.ts` / `ingest-demand.ts` keep the indexes in sync on upsert.
+- **FTS5 query building:** user query strings are split into terms, each
+  double-quoted and joined with OR (`"term one" OR "term two"`), to avoid FTS5
+  query syntax errors on raw input (unbalanced quotes, operators).
+- **RRF fusion:** Reciprocal Rank Fusion with k=60 combines the vec KNN
+  ranked list + the FTS5 BM25 ranked list. A noise gate (cosine floor ~0.3)
+  drops near-zero vector hits before fusion. Each result carries `matchedBy`
+  (`vector` | `fts` | `both`) provenance.
+
+## Commercial competitors + potential score
+
+- **Source: Wikidata SPARQL** (`src/lib/competitor-sources.ts`). The public
+  endpoint (`https://query.wikidata.org/sparql`) returns software entities with
+  license (P275), website (P856), language (P277) in one query per class. Free,
+  no API key, no per-key cap — pace by class (~1.5s apart). `pnpm
+  crawl-competitors` populates `market_competitors` + embeds each product.
+  `--only-stale` re-crawls products not refreshed in 7 days.
+- **AlternativeTo was evaluated and dropped.** Its pages are Cloudflare-
+  protected and client-side rendered, so a static CheerioCrawler extracts
+  zero products and a headless crawler is slow + block-prone. Wikidata is the
+  robust, scalable choice; AlternativeTo's "alternatives" graph is not worth
+  the brittleness at production scale.
+- **SPARQL performance:** use DIRECT `P31 wd:Q...` (no `P279*` recursion).
+  Recursive property paths time out the public endpoint (504). The class list
+  in `WIKIDATA_SOFTWARE_CLASSES` covers ~30 software categories via direct
+  P31; one POST per class, LIMIT 400.
+- **Matching:** `findCompetitors(repo, repoVec)` reuses the same hybrid search
+  over `competitor_vectors` / `competitors_fts`. Embedding-driven, so it works
+  for any repo without category wiring. Noise gate: cosine ≥ 0.45.
+- **Commercial score** (`computeCommercialScore`, on-demand, never stored):
+  0–100 = sqrt(demand_intensity × license_weight × saturation) × 22, clamped.
+  - demand_intensity = Σ cosine of matched demand signals (quality + quantity)
+  - license_weight: 1.0 MIT/Apache/BSD, 0.5 MPL/LGPL, 0.1 GPL/AGPL/unknown
+  - saturation: 1.15 base − 0.04/competitor − proximity penalty (mean comp
+    cosine > 0.5), floor 0.6. Rewards open niches, penalizes crowded markets.
+- **Feed pagination:** `/api/repos` now paginates (`limit`/`offset`, default
+  24) instead of returning every row. `sort=score` computes the commercial
+  score for a candidate window (stars-desc, capped at 500) and returns the
+  top page. The client (`useRepoFeed`) infinite-scrolls via `loadMore()`.
+
+## Scalability roadmap (current limits + swap points)
+
+- **sqlite-vec**: fine to ~100k vectors per table; KNN is a full scan. Beyond
+  that, swap `competitor_vectors`/`repo_vectors`/`demand_vectors` for a
+  dedicated ANN backend (Qdrant/LanceDB via the same `knn*` interface in
+  `vector-db.ts`). The JSON `embedding` column is the source of truth, so the
+  migration is: spin up the backend, bulk-load from the column, swap the
+  `knn*` implementation. No schema change.
+- **Embedding generation**: Transformers.js (multilingual-e5-small, 384-dim)
+  runs ONNX in-process. At crawl time this is the bottleneck (8-wide batch).
+  For millions of competitors, move embedding to a dedicated service
+  (sentence-transformers behind an HTTP API) and have `crawl-competitors`
+  call it instead of `getEmbedder()`.
+- **SQLite → Postgres**: better-sqlite3 caps at single-machine concurrency.
+  Drizzle makes the swap mechanical: change the driver, keep the schema.
+  `vec0` tables become `pgvector`; `FTS5` becomes `tsvector`/`tsquery`.
+- **Demand corpus**: the score's discriminating power depends on a diverse
+  demand corpus. With only ~20 signals that pass the noise gate, scores
+  saturate. Grow the corpus (more Currents/HN/StackExchange ingestion) for
+  meaningful differentiation across repos.

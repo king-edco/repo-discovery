@@ -14,6 +14,7 @@ export type Repo = {
   pushed_at: string;
   ingested_at: string;
   similarity?: number;
+  commercialScore?: number;
 };
 
 export type SearchResult = {
