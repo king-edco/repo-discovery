@@ -57,3 +57,7 @@ next-env.d.ts
 /data/*.db
 /data/*.db-wal
 /data/*.db-shm
+
+# agent + dev logs
+/logs/
+.agents_tmp/

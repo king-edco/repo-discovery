@@ -1,12 +1,14 @@
 import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ArrowLeft, Star, Scale, TrendingUp, Calendar, ExternalLink } from "lucide-react";
 import { getDb } from "@/db";
 import { repos } from "@/db/schema";
-import { Markdown } from "@/components/markdown";
 import { RelatedDemandSignals } from "@/components/related-demand-signals";
 import { CompetitiveLandscape } from "@/components/competitive-landscape";
 import { CommercialScoreCard } from "@/components/commercial-score";
+import { RepoEnrichment, ReadmeToggle } from "@/components/repo-enrichment";
+import { FeedbackButtons } from "@/components/feedback-buttons";
 import { computeCommercialScore, findCompetitors, findRelatedDemandSignals } from "@/lib/hybrid-search";
 import { formatCount, langColor, parseTopics, previewImage } from "@/lib/format";
 
@@ -18,10 +20,7 @@ function BackLink() {
       href="/"
       className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
     >
-      <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="m12 19-7-7 7-7" />
-        <path d="M19 12H5" />
-      </svg>
+      <ArrowLeft className="size-4" />
       Retour au feed
     </Link>
   );
@@ -118,9 +117,7 @@ export default async function RepoDetailPage({
         {/* Stats as chips */}
         <section className="mt-5 flex flex-wrap gap-2">
           <StatChip>
-            <svg className="size-4 text-amber-500" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M12 2l2.9 6.3 6.9.6-5.2 4.6 1.6 6.8L12 17l-6.2 3.3 1.6-6.8L2.2 8.9l6.9-.6L12 2z" />
-            </svg>
+            <Star className="size-4 text-amber-500" />
             <span className="font-medium tabular-nums text-foreground">
               {formatCount(repo.stars)}
             </span>
@@ -138,21 +135,12 @@ export default async function RepoDetailPage({
           ) : null}
           {repo.license ? (
             <StatChip>
-              <svg className="size-4 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M12 3v18" />
-                <path d="M3 7l4-4 4 4" />
-                <path d="M3 7h8" />
-                <path d="M13 17l4 4 4-4" />
-                <path d="M13 17h8" />
-              </svg>
+              <Scale className="size-4 text-muted-foreground" />
               <span className="font-medium text-foreground">{repo.license}</span>
             </StatChip>
           ) : null}
           <StatChip>
-            <svg className="size-4 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M3 3v18h18" />
-              <path d="m7 14 3-3 3 3 5-5" />
-            </svg>
+            <Calendar className="size-4 text-muted-foreground" />
             <span className="text-muted-foreground">Mis à jour</span>
             <time className="font-medium text-foreground" dateTime={repo.pushed_at}>
               {new Date(repo.pushed_at).toLocaleDateString("fr-FR", {
@@ -186,27 +174,43 @@ export default async function RepoDetailPage({
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-5 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-accent"
           >
-            <svg className="size-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.7 1.3 3.4 1 .1-.8.4-1.3.8-1.6-2.6-.3-5.3-1.3-5.3-5.8 0-1.3.5-2.3 1.2-3.2-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.6 1.6.2 2.8.1 3.1.8.9 1.2 1.9 1.2 3.2 0 4.5-2.7 5.5-5.3 5.8.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z" />
-            </svg>
+            <ExternalLink className="size-4" />
             Voir sur GitHub
           </a>
         </div>
 
         <hr className="my-8 border-border" />
 
-        {/* README */}
+        {/* AI enrichment: plain summary + business pitch (cached, generated on demand) */}
+        <section>
+          <h2 className="mb-4 inline-flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
+            <TrendingUp className="size-5 text-primary" />
+            En bref & opportunité
+          </h2>
+          <RepoEnrichment repoId={repo.id} />
+        </section>
+
+        <hr className="my-8 border-border" />
+
+        {/* Feedback */}
+        <section>
+          <h2 className="mb-3 text-lg font-semibold tracking-tight text-foreground">
+            Votre avis
+          </h2>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Ce dépôt vous a-t-il été utile ? Votre feedback affine les recommandations.
+          </p>
+          <FeedbackButtons repoId={repo.id} />
+        </section>
+
+        <hr className="my-8 border-border" />
+
+        {/* README (toggle: plain summary first, raw technical README on demand) */}
         <section>
           <h2 className="mb-4 text-lg font-semibold tracking-tight text-foreground">
             README
           </h2>
-          {repo.readme_text ? (
-            <Markdown>{repo.readme_text}</Markdown>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Aucun README disponible pour ce dépôt.
-            </p>
-          )}
+          <ReadmeToggle readmeText={repo.readme_text} />
         </section>
 
         <hr className="my-8 border-border" />

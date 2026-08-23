@@ -15,6 +15,15 @@ export type Repo = {
   ingested_at: string;
   similarity?: number;
   commercialScore?: number;
+  // AI enrichment (cached on the repos row, served via /api/repos/[id]/enrichment)
+  plain_summary?: string | null;
+  business_pitch?: string | null;
+  // Recommendation-engine fields (only present in /api/recommend responses)
+  recScore?: number;
+  interestMatch?: number;
+  semanticScore?: number;
+  liked?: boolean;
+  disliked?: boolean;
 };
 
 export type SearchResult = {

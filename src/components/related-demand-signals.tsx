@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ExternalLink, MessageCircle, TrendingUp, SearchX } from "lucide-react";
 import type { DemandSignalMatch } from "@/lib/hybrid-search";
 
 // Source metadata: label + accent classes for the badge. Each demand source
@@ -36,60 +37,6 @@ function SourceBadge({ source }: { source: string }) {
     >
       {meta.label}
     </span>
-  );
-}
-
-function ExternalLinkIcon() {
-  return (
-    <svg
-      className="size-3.5 shrink-0 text-muted-foreground"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M15 3h6v6" />
-      <path d="M10 14 21 3" />
-      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-    </svg>
-  );
-}
-
-function CommentIcon() {
-  return (
-    <svg
-      className="size-3.5 shrink-0"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-  );
-}
-
-function ScoreIcon() {
-  return (
-    <svg
-      className="size-3.5 shrink-0"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M3 3v18h18" />
-      <path d="m7 14 3-3 3 3 5-5" />
-    </svg>
   );
 }
 
@@ -134,13 +81,13 @@ function DemandSignalCard({ signal }: { signal: DemandSignalMatch }) {
       <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
         {signal.score > 0 ? (
           <span className="inline-flex items-center gap-1 tabular-nums">
-            <ScoreIcon />
+            <TrendingUp className="size-3.5" />
             {signal.score}
           </span>
         ) : null}
         {signal.num_comments > 0 ? (
           <span className="inline-flex items-center gap-1 tabular-nums">
-            <CommentIcon />
+            <MessageCircle className="size-3.5" />
             {signal.num_comments}
           </span>
         ) : null}
@@ -152,7 +99,7 @@ function DemandSignalCard({ signal }: { signal: DemandSignalMatch }) {
             className="ml-auto inline-flex items-center gap-1 font-medium text-primary transition-colors hover:text-primary/80"
           >
             {host ?? "Source"}
-            <ExternalLinkIcon />
+            <ExternalLink className="size-3.5" />
           </a>
         ) : null}
       </div>
@@ -180,19 +127,7 @@ export function RelatedDemandSignals({
 
       {signals.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/30 px-4 py-10 text-center">
-          <svg
-            className="size-6 text-muted-foreground/60"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <path d="m21 21-4.3-4.3" />
-          </svg>
+          <SearchX className="size-6 text-muted-foreground/60" />
           <p className="text-sm font-medium text-foreground">
             Aucun signal de demande détecté pour ce repo
           </p>

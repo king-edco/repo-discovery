@@ -2,33 +2,10 @@
 
 import { useCallback, useState } from "react";
 import Link from "next/link";
+import { ArrowLeft, Settings as SettingsIcon, Sun, Moon, Star, Trash2, Tag, Check } from "lucide-react";
 import { useSettings, usePrefersDark, resolveDark } from "@/lib/settings";
-
-function SettingsIcon() {
-  return (
-    <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
-function SunIcon() {
-  return (
-    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-    </svg>
-  );
-}
-
-function MoonIcon() {
-  return (
-    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z" />
-    </svg>
-  );
-}
+import { useInterests } from "@/lib/use-user";
+import { TOPICS } from "@/lib/topics";
 
 /**
  * Unregister every service worker and drop all Cache Storage entries, forcing a
@@ -77,7 +54,7 @@ function ThemeToggle() {
     <div className="flex items-center justify-between gap-4">
       <div className="flex items-center gap-3">
         <span className="inline-flex size-9 items-center justify-center rounded-xl bg-muted text-foreground">
-          {isDark ? <MoonIcon /> : <SunIcon />}
+          {isDark ? <Moon className="size-4" /> : <Sun className="size-4" />}
         </span>
         <div>
           <p className="text-sm font-medium text-foreground">Thème</p>
@@ -114,13 +91,11 @@ function MinStarsInput() {
     <div className="flex items-center justify-between gap-4">
       <div className="flex items-center gap-3">
         <span className="inline-flex size-9 items-center justify-center rounded-xl bg-muted text-foreground">
-          <svg className="size-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M12 2l2.9 6.3 6.9.6-5.2 4.6 1.6 6.8L12 17l-6.2 3.3 1.6-6.8L2.2 8.9l6.9-.6L12 2z" />
-          </svg>
+          <Star className="size-4" />
         </span>
         <div>
           <p className="text-sm font-medium text-foreground">Étoiles minimum</p>
-          <p className="text-xs text-muted-foreground">Masquer les dépôts avec moins d’étoiles.</p>
+          <p className="text-xs text-muted-foreground">Masquer les dépôts avec moins d&apos;étoiles.</p>
         </div>
       </div>
       <input
@@ -137,6 +112,55 @@ function MinStarsInput() {
   );
 }
 
+function InterestsPicker() {
+  const { topics: selected, setInterests } = useInterests();
+  const selectedSet = new Set(selected);
+
+  const toggle = (topic: string) => {
+    const next = new Set(selectedSet);
+    if (next.has(topic)) next.delete(topic);
+    else next.add(topic);
+    void setInterests([...next]);
+  };
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center gap-3">
+        <span className="inline-flex size-9 items-center justify-center rounded-xl bg-muted text-foreground">
+          <Tag className="size-4" />
+        </span>
+        <div>
+          <p className="text-sm font-medium text-foreground">Centres d&apos;intérêt</p>
+          <p className="text-xs text-muted-foreground">
+            Personnalisez le feed « Pour vous ». {selected.length} sélectionné{selected.length > 1 ? "s" : ""}.
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {TOPICS.map((topic) => {
+          const active = selectedSet.has(topic);
+          return (
+            <button
+              key={topic}
+              type="button"
+              onClick={() => toggle(topic)}
+              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                active
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+              }`}
+              aria-pressed={active}
+            >
+              {active ? <Check className="size-3" /> : null}
+              {topic}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ClearCacheButton() {
   const { state, clear } = useClearOfflineCache();
   const label =
@@ -146,9 +170,7 @@ function ClearCacheButton() {
     <div className="flex items-center justify-between gap-4">
       <div className="flex items-center gap-3">
         <span className="inline-flex size-9 items-center justify-center rounded-xl bg-muted text-foreground">
-          <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6" />
-          </svg>
+          <Trash2 className="size-4" />
         </span>
         <div>
           <p className="text-sm font-medium text-foreground">Cache hors-ligne</p>
@@ -178,13 +200,10 @@ export default function SettingsPage() {
               className="inline-flex size-8 items-center justify-center rounded-full border border-input bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               aria-label="Retour"
             >
-              <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="m12 19-7-7 7-7" />
-                <path d="M19 12H5" />
-              </svg>
+              <ArrowLeft className="size-4" />
             </Link>
             <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground">
-              <SettingsIcon />
+              <SettingsIcon className="size-5" />
               Réglages
             </h1>
           </div>
@@ -193,6 +212,9 @@ export default function SettingsPage() {
 
       <main className="mx-auto w-full max-w-2xl px-4 pb-20 pt-6">
         <div className="space-y-3">
+          <div className="rounded-2xl border border-border bg-card p-5">
+            <InterestsPicker />
+          </div>
           <div className="rounded-2xl border border-border bg-card p-5">
             <ThemeToggle />
           </div>
@@ -203,7 +225,7 @@ export default function SettingsPage() {
             <ClearCacheButton />
           </div>
           <p className="px-1 pt-2 text-xs text-muted-foreground">
-            Ces réglages sont stockés localement dans votre navigateur. Le seuil d’étoiles s’applique au feed et à la recherche.
+            Ces réglages sont stockés localement dans votre navigateur. Le seuil d&apos;étoiles s&apos;applique au feed et à la recherche.
           </p>
         </div>
       </main>

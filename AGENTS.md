@@ -244,3 +244,53 @@ Package manager: **pnpm** (`packageManager: pnpm@11.20.0`).
   demand corpus. With only ~20 signals that pass the noise gate, scores
   saturate. Grow the corpus (more Currents/HN/StackExchange ingestion) for
   meaningful differentiation across repos.
+
+## Adaptive recommendations + AI enrichment (2026-08-10)
+
+- **Recommendation engine** (`src/lib/recommendation.ts`):
+  TikTok-style adaptive ranking. `getRecommendations(params)` combines:
+  - **interestMatch** (binary 0/1): repo topics ∩ user interests.
+  - **semanticScore** (0–1): cosine between repo embedding and the centroid of
+    liked-repo embeddings (falls back to 0 on cold start). The centroid is
+    computed on the fly from the `likedRepoIds` passed by the client.
+  - **popularity** (0–1): log-scaled stars.
+  - **recScore** = 0.45·interest + 0.35·semantic + 0.20·popularity. Disliked
+    repos are excluded. Cold start (no likes, no interests) = popularity only.
+  - Validated: liking tensorflow/tensorflow promotes ML-For-Beginners,
+    tesseract-ocr, deer-flow (semanticScore ~0.8) above generic popular repos.
+- **AI enrichment** (`src/lib/ai-enrichment.ts`): hybrid heuristic + optional
+  Gemini. `generateEnrichment(repoId)` produces a `plainSummary` (README
+  simplified to 1–2 sentences in French) and a `businessPitch` (competitors +
+  demand signals + commercial score + license analysis + domain-specific idea).
+  Source = `"heuristic"` by default; if `GEMINI_API_KEY` is set, calls the
+  Gemini REST API and source = `"gemini"`. Results cached in the
+  `plain_summary` / `business_pitch` / `enrichment_provenance` columns.
+  `businessIdeaByDomain()` has per-domain templates (ML → managed inference
+  API, react → premium component studio, etc.).
+- **User identity** (`src/lib/user-id.ts`): anonymous client-side UUID in
+  localStorage (no auth). `useInterests()` / `useFeedback()` hooks in
+  `use-user.ts` sync to the server via the API routes below.
+- **New API routes**:
+  - `GET /api/recommend` — personalized feed (params: userId, interests,
+    liked, disliked, limit, offset).
+  - `GET/POST /api/repos/[id]/enrichment` — fetch or regenerate enrichment.
+  - `GET/POST /api/user/interests` — read/update interest topics.
+  - `POST /api/user/feedback` — like/dislike with optional reason.
+- **New DB tables**: `user_interests` (userId, topic), `user_feedback`
+  (userId, repoId, feedback, reason). New columns on `repos`:
+  `plain_summary`, `business_pitch`, `enrichment_provenance`.
+- **UI components**: `onboarding.tsx` (13-domain interest picker, shows on
+  first visit via localStorage gate), `feedback-buttons.tsx` (thumbs up/down +
+  "why?" modal with preset reasons), `repo-enrichment.tsx` (summary + pitch +
+  README toggle). `repo-feed.tsx` has a "Pour vous" sort mode that routes to
+  `/api/recommend`. `repo-card.tsx` shows feedback buttons inline.
+- **Icons**: migrated to `lucide-react`. Note: `Github` icon is NOT exported
+  in the installed version — use `ExternalLink` or `Code` instead.
+- **Build**: `npx next build --webpack` (Turbopack is incompatible with
+  Serwist's webpack config in Next 16). TSC=0, ESLINT=0, BUILD=0 verified.
+- **Bounded ingestion** (`src/scripts/ingest-bounded.ts`): `pnpm
+  ingest-bounded` — targets ~20 diverse topics, 100 repos each, for a quick
+  representative corpus without exhausting the GitHub rate limit.
+- **Security note**: the user shared a GitHub PAT in plaintext during
+  development. The agent refused to use the shared token and warned the user
+  to rotate it and use `.env.local` instead.

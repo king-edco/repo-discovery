@@ -20,6 +20,17 @@ export const repos = sqliteTable("repos", {
   ingested_at: text("ingested_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
+  // --- AI enrichment (generated on demand, cached) ---
+  // Plain-language summary for non-technical readers. Heuristic by default;
+  // upgraded via Gemini when GEMINI_API_KEY is set. Null until generated.
+  plain_summary: text("plain_summary"),
+  // Business idea pitch tied to the repo + its demand/competitor context.
+  // Heuristic by default; Gemini-upgraded when available.
+  business_pitch: text("business_pitch"),
+  // "heuristic" | "gemini" — records which generator produced the enrichment
+  // so the UI can show a provenance badge and re-generate if a key is added.
+  enrichment_source: text("enrichment_source"),
+  enriched_at: text("enriched_at"),
 });
 
 export type Repo = typeof repos.$inferSelect;
@@ -111,6 +122,73 @@ export const marketCompetitors = sqliteTable("market_competitors", {
 export type MarketCompetitor = typeof marketCompetitors.$inferSelect;
 export type NewMarketCompetitor = typeof marketCompetitors.$inferInsert;
 
+// --- User feedback (likes / dislikes) --------------------------------------
+// One row per (user_id, repo_id) vote. user_id is a client-generated anonymous
+// id stored in localStorage (single-user app, no auth). The reason is the
+// free-text or picked reason captured after a vote. Embedding of the repo is
+// captured at vote time so the recommendation engine can boost/demote
+// semantically similar repos without re-reading the repos table.
+
+export const FEEDBACK_TYPES = ["like", "dislike"] as const;
+export type FeedbackType = (typeof FEEDBACK_TYPES)[number];
+
+export const repoFeedback = sqliteTable("repo_feedback", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  user_id: text("user_id").notNull(),
+  repo_id: text("repo_id").notNull(),
+  feedback: text("feedback").notNull(), // "like" | "dislike"
+  reason: text("reason"),
+  created_at: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export type RepoFeedback = typeof repoFeedback.$inferSelect;
+export type NewRepoFeedback = typeof repoFeedback.$inferInsert;
+
+// --- User interests --------------------------------------------------------
+// One row per (user_id, topic). Populated during onboarding or from the
+// settings page. The recommendation engine uses these to score repos by
+// tag/topic overlap and to build a centroid interest embedding.
+
+export const userInterests = sqliteTable("user_interests", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  user_id: text("user_id").notNull(),
+  topic: text("topic").notNull(),
+  created_at: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export type UserInterest = typeof userInterests.$inferSelect;
+export type NewUserInterest = typeof userInterests.$inferInsert;
+
+// --- User interest embedding (centroid) ------------------------------------
+// The aggregate interest vector: the mean of the e5 embeddings of the user's
+// liked repos + interests. One row per user_id. Recomputed when interests or
+// feedback change. Used as the KNN query vector for the recommendation feed.
+
+export const userProfile = sqliteTable("user_profile", {
+  user_id: text("user_id").primaryKey(),
+  embedding: text("embedding"), // JSON float[]
+  liked_repo_ids: text("liked_repo_ids").notNull().default("[]"), // JSON string[]
+  disliked_repo_ids: text("disliked_repo_ids").notNull().default("[]"),
+  updated_at: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export type UserProfile = typeof userProfile.$inferSelect;
+export type NewUserProfile = typeof userProfile.$inferInsert;
+
 // Tables-only schema object (excludes non-table exports like DEMAND_SOURCES)
 // so the Drizzle DB type matches the config passed to `drizzle()`.
-export const schema = { repos, demandSignals, demandQuota, marketCompetitors };
+export const schema = {
+  repos,
+  demandSignals,
+  demandQuota,
+  marketCompetitors,
+  repoFeedback,
+  userInterests,
+  userProfile,
+};

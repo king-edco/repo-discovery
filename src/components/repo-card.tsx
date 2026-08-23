@@ -1,30 +1,32 @@
 import Link from "next/link";
+import { Star, Scale, ThumbsUp, ThumbsDown } from "lucide-react";
 import type { Repo } from "@/lib/types";
 import { CommercialScorePill } from "@/components/commercial-score";
 import { formatCount, langColor, previewDescription, previewImage } from "@/lib/format";
-
-function StarIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M12 2l2.9 6.3 6.9.6-5.2 4.6 1.6 6.8L12 17l-6.2 3.3 1.6-6.8L2.2 8.9l6.9-.6L12 2z" />
-    </svg>
-  );
-}
-
-function ScaleIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 3v18" />
-      <path d="M3 7l4-4 4 4" />
-      <path d="M3 7h8" />
-      <path d="M13 17l4 4 4-4" />
-      <path d="M13 17h8" />
-    </svg>
-  );
-}
+import { useFeedback } from "@/lib/use-user";
 
 export function RepoCard({ repo, scorePill }: { repo: Repo; scorePill?: number }) {
   const description = previewDescription(repo.description, repo.readme_text);
+  const { liked, disliked, vote, removeVote } = useFeedback();
+  const isLiked = liked.includes(repo.id);
+  const isDisliked = disliked.includes(repo.id);
+
+  const stopAndPrevent = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const onLike = (e: React.MouseEvent) => {
+    stopAndPrevent(e);
+    if (isLiked) void removeVote(repo.id);
+    else void vote(repo.id, "like");
+  };
+  const onDislike = (e: React.MouseEvent) => {
+    stopAndPrevent(e);
+    if (isDisliked) void removeVote(repo.id);
+    else void vote(repo.id, "dislike");
+  };
+
   return (
     <Link
       href={`/repos/${repo.id}`}
@@ -59,7 +61,7 @@ export function RepoCard({ repo, scorePill }: { repo: Repo; scorePill?: number }
 
         <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-2 pt-2 text-sm text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
-            <StarIcon className="size-4 text-amber-500" />
+            <Star className="size-4 text-amber-500" />
             <span className="font-medium tabular-nums text-foreground">
               {formatCount(repo.stars)}
             </span>
@@ -76,10 +78,40 @@ export function RepoCard({ repo, scorePill }: { repo: Repo; scorePill?: number }
           ) : null}
           {repo.license ? (
             <span className="inline-flex items-center gap-1.5">
-              <ScaleIcon className="size-4" />
+              <Scale className="size-4" />
               <span>{repo.license}</span>
             </span>
           ) : null}
+        </div>
+
+        {/* Quick feedback row — adapts the feed without leaving the card. */}
+        <div className="flex items-center gap-1 border-t border-border pt-3">
+          <button
+            type="button"
+            onClick={onLike}
+            className={`inline-flex size-7 items-center justify-center rounded-full transition-colors ${
+              isLiked
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+            aria-label="Utile"
+            aria-pressed={isLiked}
+          >
+            <ThumbsUp className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={onDislike}
+            className={`inline-flex size-7 items-center justify-center rounded-full transition-colors ${
+              isDisliked
+                ? "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+            aria-label="Pas utile"
+            aria-pressed={isDisliked}
+          >
+            <ThumbsDown className="size-3.5" />
+          </button>
         </div>
       </div>
     </Link>

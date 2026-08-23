@@ -2,9 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Search, Settings as SettingsIcon, RefreshCw, Wifi, WifiOff, SlidersHorizontal } from "lucide-react";
 import { RepoCard } from "@/components/repo-card";
 import { useOnlineStatus, useRepoFeed, type FeedSort } from "@/lib/use-feed";
 import { useSettings } from "@/lib/settings";
+import { useInterests, useFeedback } from "@/lib/use-user";
+import { OnboardingFlow } from "@/components/onboarding";
 import type { Repo } from "@/lib/types";
 
 type SearchState =
@@ -18,6 +21,8 @@ type SearchState =
 // this the score is marginal and the badge would add noise without signal.
 const SCORE_PILL_THRESHOLD = 30;
 
+const ONBOARDING_KEY = "foundry.onboarded.v1";
+
 function ConnectionBadge({ online }: { online: boolean }) {
   return (
     <span
@@ -27,9 +32,7 @@ function ConnectionBadge({ online }: { online: boolean }) {
           : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
       }`}
     >
-      <span
-        className={`size-1.5 rounded-full ${online ? "bg-emerald-500" : "bg-amber-500"}`}
-      />
+      {online ? <Wifi className="size-3.5" /> : <WifiOff className="size-3.5" />}
       {online ? "En ligne" : "Hors-ligne"}
     </span>
   );
@@ -42,26 +45,25 @@ function SortToggle({
   sort: FeedSort;
   onSort: (s: FeedSort) => void;
 }) {
+  const options: { value: FeedSort; label: string }[] = [
+    { value: "recommend", label: "Pour vous" },
+    { value: "stars", label: "Étoiles" },
+    { value: "score", label: "Potentiel" },
+  ];
   return (
     <div className="inline-flex rounded-full border border-input bg-card p-0.5 text-xs">
-      <button
-        type="button"
-        onClick={() => onSort("stars")}
-        className={`rounded-full px-3 py-1 font-medium transition-colors ${
-          sort === "stars" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-        }`}
-      >
-        Étoiles
-      </button>
-      <button
-        type="button"
-        onClick={() => onSort("score")}
-        className={`rounded-full px-3 py-1 font-medium transition-colors ${
-          sort === "score" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-        }`}
-      >
-        Potentiel commercial
-      </button>
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          onClick={() => onSort(opt.value)}
+          className={`rounded-full px-3 py-1 font-medium transition-colors ${
+            sort === opt.value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {opt.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -69,11 +71,30 @@ function SortToggle({
 export function RepoFeed() {
   const { settings } = useSettings();
   const minStars = settings.minStars;
-  const [sort, setSort] = useState<FeedSort>("stars");
-  const { repos, loading, loadingMore, hasMore, error, online, reload, loadMore } = useRepoFeed(minStars, sort);
+  const [sort, setSort] = useState<FeedSort>("recommend");
+  const { topics: interests } = useInterests();
+  const { liked, disliked } = useFeedback();
+  const { repos, loading, loadingMore, hasMore, error, online, reload, loadMore } =
+    useRepoFeed(minStars, sort, interests, liked, disliked);
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState<SearchState>({ mode: "idle" });
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  // Onboarding gate: show the interest-selection flow on first visit. We read
+  // localStorage in the lazy initializer so there's no effect-driven setState.
+  const [onboarded, setOnboarded] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      return window.localStorage.getItem(ONBOARDING_KEY) === "1";
+    } catch {
+      return true;
+    }
+  });
+  const finishOnboarding = () => {
+    try { window.localStorage.setItem(ONBOARDING_KEY, "1"); } catch { /* ignore */ }
+    setOnboarded(true);
+    void reload();
+  };
 
   // Debounced search: fires when the user stops typing for 350ms.
   const runSearch = useCallback(async (q: string) => {
@@ -126,6 +147,10 @@ export function RepoFeed() {
     return () => observer.disconnect();
   }, [hasMore, loadMore, showingSearch]);
 
+  if (!onboarded) {
+    return <OnboardingFlow onDone={finishOnboarding} />;
+  }
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-background">
       <StickyHeader
@@ -136,9 +161,14 @@ export function RepoFeed() {
         onReload={reload}
         sort={sort}
         onSort={setSort}
+        interestCount={interests.length}
       />
 
       <main className="mx-auto w-full max-w-screen-2xl px-4 pb-20 pt-6 sm:px-5">
+        {sort === "recommend" && interests.length === 0 && !showingSearch ? (
+          <RecommendEmptyState />
+        ) : null}
+
         {!online && !loading && !showingSearch ? (
           <OfflineNotice hasCache={error !== "offline-no-cache"} />
         ) : null}
@@ -224,6 +254,28 @@ export function RepoFeed() {
   );
 }
 
+function RecommendEmptyState() {
+  return (
+    <div className="mb-6 rounded-2xl border border-primary/20 bg-primary/5 p-6 text-center">
+      <SlidersHorizontal className="mx-auto mb-3 size-6 text-primary" />
+      <p className="text-sm font-medium text-foreground">
+        Personnalisez votre feed
+      </p>
+      <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+        Sélectionnez vos centres d&apos;intérêt dans les réglages pour recevoir
+        des recommandations adaptées à votre profil.
+      </p>
+      <Link
+        href="/settings"
+        className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+      >
+        <SettingsIcon className="size-4" />
+        Choisir mes intérêts
+      </Link>
+    </div>
+  );
+}
+
 function StickyHeader({
   query,
   onQuery,
@@ -232,6 +284,7 @@ function StickyHeader({
   onReload,
   sort,
   onSort,
+  interestCount,
 }: {
   query: string;
   onQuery: (v: string) => void;
@@ -240,6 +293,7 @@ function StickyHeader({
   onReload: () => void;
   sort: FeedSort;
   onSort: (s: FeedSort) => void;
+  interestCount: number;
 }) {
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-background/80 backdrop-blur-xl">
@@ -252,22 +306,15 @@ function StickyHeader({
             <SortToggle sort={sort} onSort={onSort} />
             <Link
               href="/settings"
-              className="inline-flex size-8 items-center justify-center rounded-full border border-input bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="relative inline-flex size-8 items-center justify-center rounded-full border border-input bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               aria-label="Réglages"
             >
-              <svg
-                className="size-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
+              <SettingsIcon className="size-4" />
+              {interestCount > 0 ? (
+                <span className="absolute -right-0.5 -top-0.5 inline-flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
+                  {interestCount}
+                </span>
+              ) : null}
             </Link>
             <button
               type="button"
@@ -276,34 +323,14 @@ function StickyHeader({
               className="inline-flex size-8 items-center justify-center rounded-full border border-input bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
               aria-label="Recharger"
             >
-              <svg
-                className={`size-4 ${loading ? "animate-spin" : ""}`}
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                aria-hidden="true"
-              >
-                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                <path d="M21 3v6h-6" />
-              </svg>
+              <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
             </button>
             <ConnectionBadge online={online} />
           </div>
         </div>
 
         <div className="relative mt-3">
-          <svg
-            className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            aria-hidden="true"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <path d="m21 21-4.3-4.3" />
-          </svg>
+          <Search className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
           <input
             type="search"
             value={query}
@@ -321,13 +348,7 @@ function StickyHeader({
 function OfflineNotice({ hasCache }: { hasCache: boolean }) {
   return hasCache ? (
     <div className="mb-6 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
-      <svg className="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-        <path d="M1 1l22 22" />
-        <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
-        <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
-        <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
-        <line x1="12" y1="20" x2="12.01" y2="20" />
-      </svg>
+      <WifiOff className="size-4 shrink-0" />
       Hors-ligne — affichage des données en cache. La connexion rétablie, les
       données se rafraîchiront.
     </div>
