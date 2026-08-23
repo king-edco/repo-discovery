@@ -54,11 +54,12 @@ export async function GET(request: Request) {
   // This bounds work to the candidate window, not the whole table.
   if (sortBy === "score") {
     const candidateCap = Math.min(Math.max(offset + limit, limit * 4), 500);
-    let candidates = baseQuery.orderBy(desc(repos.stars)).all();
-    if (minStars !== null) {
-      candidates = candidates.filter((r) => r.stars >= minStars);
-    }
-    candidates = candidates.slice(0, candidateCap);
+    // Bound the read in SQL: loading the whole table (including the ~7KB
+    // embedding JSON per row) on every request is a DoS amplifier.
+    const scoreQuery = minStars !== null
+      ? baseQuery.where(gte(repos.stars, minStars)).orderBy(desc(repos.stars))
+      : baseQuery.orderBy(desc(repos.stars));
+    const candidates = scoreQuery.limit(candidateCap).all();
     const scored = candidates.map((r) => {
       const repoVec = r.embedding ? (JSON.parse(r.embedding) as number[]) : null;
       const { embedding: _emb, ...rest } = r;

@@ -294,3 +294,23 @@ Package manager: **pnpm** (`packageManager: pnpm@11.20.0`).
 - **Security note**: the user shared a GitHub PAT in plaintext during
   development. The agent refused to use the shared token and warned the user
   to rotate it and use `.env.local` instead.
+
+## Security hardening (2026-08-23 audit)
+
+- `src/lib/security.ts` — shared helpers: `safeExternalUrl()` (http/https
+  only; use for ANY href built from external data), `isValidUserId()` /
+  `isValidEntityId()`, `parseJsonBody()` (400 instead of unhandled 500 on
+  malformed JSON), `isAdminRequest()` (constant-time check of `x-admin-key`
+  against `ENRICHMENT_ADMIN_KEY`; denied when the env var is unset).
+- `next.config.ts` sets global security headers incl. a CSP
+  (`script-src 'self' 'unsafe-inline'` is required by the anti-FOUC theme
+  script; `img-src https:` is required for README images). HSTS prod-only.
+- Privileged/cost-bearing operations: `?force=1` on
+  `/api/repos/[id]/enrichment` spends paid Gemini quota → gated behind
+  `ENRICHMENT_ADMIN_KEY`. Never add unauthenticated endpoints that trigger
+  paid API calls or unbounded compute.
+- Bound everything attacker-controlled: OG image cache is an LRU capped at
+  200 entries; search queries capped at 300 chars; recommend id lists capped
+  at 200; interests capped at 50×64 chars; feedback reason at 280 chars.
+- `/api/repos?sort=score` must keep its SQL-level `LIMIT` — never `.all()`
+  the repos table in a request path (embedding JSON is ~7KB/row).
