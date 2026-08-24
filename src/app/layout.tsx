@@ -18,8 +18,21 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Foundry",
-  description: "Foundry",
+  metadataBase: new URL(process.env.BETTER_AUTH_URL ?? "http://localhost:3000"),
+  title: {
+    default: "Foundry — Find your next business idea in open source",
+    template: "%s · Foundry",
+  },
+  description:
+    "Foundry scans GitHub, cross-matches repos against real market demand and commercial competitors, and scores every repo's business potential.",
+  keywords: [
+    "business ideas",
+    "open source opportunities",
+    "github trending",
+    "saas ideas",
+    "startup ideas",
+    "indie hackers",
+  ],
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,

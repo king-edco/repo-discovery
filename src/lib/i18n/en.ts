@@ -56,6 +56,54 @@ export const en = {
     proF4: "AI business pitch for every repo",
     proCta: "Go Pro",
     freeCta: "Start free",
+    aboutTitle: "Why we built Foundry",
+    aboutBody1:
+      "It started with a familiar itch: I was looking for a business idea. Not another todo-list clone — a real gap in the market, something people actually needed and would pay for.",
+    aboutBody2:
+      "So I did what everyone does: scrolled GitHub trending, read Hacker News threads at 2am, bookmarked dozens of repos. The signal was there, but scattered across a dozen tabs. Which repos solve a problem people complain about? Which niches are crowded with commercial incumbents, and which are wide open?",
+    aboutBody3:
+      "Foundry is the tool I wished existed. It ingests open-source repos, cross-matches them against real demand signals and commercial competitors, and surfaces the ones with genuine business potential — with an AI pitch for how to build on each.",
+    aboutMission: "Our goal",
+    aboutMissionBody:
+      "Help builders stop guessing. Every hour you spend on the wrong idea is an hour you're not spending on the right one. Foundry exists to point you at the ideas worth your time.",
+    testimonialsTitle: "What builders say",
+    testimonials: [
+      {
+        quote:
+          "I found my SaaS idea in a weekend. The demand signals told me people were actively begging for a hosted version of the repo I picked.",
+        name: "Marc D.",
+        role: "Indie hacker",
+      },
+      {
+        quote:
+          "The competitor view saved me months. I was about to build in a niche with 40 entrenched commercial products — Foundry showed me a better one.",
+        name: "Sofia R.",
+        role: "Founder",
+      },
+      {
+        quote:
+          "It's like GitHub trending, but with business context. The commercial score is the first thing I check every morning.",
+        name: "James L.",
+        role: "Side-project addict",
+      },
+    ],
+    pricingFree: [
+      "Personalized repo feed",
+      "Semantic search across the whole corpus",
+      "Plain-language repo summaries",
+      "Save ideas to your list",
+      "Community support",
+    ],
+    pricingPro: [
+      "Everything in Free",
+      "Cross-data matching: demand signals & commercial competitors",
+      "Commercial potential score (0–100) on every repo",
+      "AI business pitch for every repo",
+      "New-repo notifications matching your interests",
+      "Priority support",
+    ],
+    pricingNote: "Cancel anytime. Prices in USD.",
+    betaBadge: "Beta",
   },
   auth: {
     loginTitle: "Welcome back",
@@ -69,6 +117,9 @@ export const en = {
     login: "Log in",
     signup: "Sign up",
     orContinueWith: "or continue with",
+    orSignupWithEmail: "or sign up with email",
+    orLoginWithEmail: "or log in with email",
+    providersHint: "Social sign-in is enabled once OAuth keys are configured.",
     noAccount: "No account yet?",
     haveAccount: "Already have an account?",
     logout: "Log out",

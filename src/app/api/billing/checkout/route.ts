@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // Returns 503 when Stripe isn't configured so the UI can show "coming soon".
 
 function appUrl(request: Request): string {
-  return process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin;
+  return process.env.BETTER_AUTH_URL ?? new URL(request.url).origin;
 }
 
 export async function POST(request: Request) {
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   if (error) return error;
 
   const key = process.env.STRIPE_SECRET_KEY;
-  const priceId = process.env.STRIPE_PRICE_ID;
+  const priceId = process.env.STRIPE_PRO_PRICE_ID;
   if (!key || !priceId) {
     return Response.json(
       { error: "Billing is not configured yet." },

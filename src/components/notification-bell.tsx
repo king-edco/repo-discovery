@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Bell } from "lucide-react";
+import { getMessages } from "@/lib/i18n";
+
+const t = getMessages("en");
 
 export type NotificationItem = {
   id: number;
@@ -82,7 +85,7 @@ export function NotificationBell() {
         <div className="absolute right-0 z-40 mt-2 w-80 rounded-2xl border border-border bg-card p-2 shadow-lg">
           {items.length === 0 ? (
             <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-              No notifications yet.
+              {t.notifications.empty}
             </p>
           ) : (
             <ul className="max-h-96 overflow-y-auto">
@@ -107,7 +110,7 @@ export function NotificationBell() {
             onClick={() => setOpen(false)}
             className="mt-1 block rounded-xl px-3 py-2 text-center text-xs text-muted-foreground hover:bg-muted"
           >
-            See all
+            {t.common.seeAll}
           </Link>
         </div>
       )}

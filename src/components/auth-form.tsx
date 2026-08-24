@@ -3,13 +3,21 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Sparkles } from "lucide-react";
+import { Code2, Globe, Loader2 } from "lucide-react";
+import { Logo } from "@/components/logo";
 import { signIn, signUp } from "@/lib/auth-client";
 import { getMessages } from "@/lib/i18n";
 
 const t = getMessages("en");
 
 export type OAuthProvider = "github" | "google";
+
+const PROVIDER_META: Record<OAuthProvider, { label: string; Icon: typeof Code2 }> = {
+  github: { label: "GitHub", Icon: Code2 },
+  google: { label: "Google", Icon: Globe },
+};
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function AuthForm({
   mode,
@@ -27,14 +35,21 @@ export function AuthForm({
 
   const isSignup = mode === "signup";
 
+  // Submit activates only when every visible field is filled and valid.
+  const formValid =
+    EMAIL_RE.test(email.trim()) &&
+    password.length >= 8 &&
+    (!isSignup || name.trim().length > 0);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!formValid || loading) return;
     setError(null);
     setLoading(true);
     try {
       const result = isSignup
-        ? await signUp.email({ name, email, password })
-        : await signIn.email({ email, password });
+        ? await signUp.email({ name: name.trim(), email: email.trim(), password })
+        : await signIn.email({ email: email.trim(), password });
       if (result.error) {
         setError(result.error.message ?? "Authentication failed.");
         return;
@@ -53,10 +68,10 @@ export function AuthForm({
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center px-4 py-12">
-      <div className="mb-8 flex items-center justify-center gap-2 font-semibold">
-        <Sparkles className="size-5" />
+      <Link href="/" className="mb-8 flex items-center justify-center gap-2 font-semibold">
+        <Logo className="size-7" />
         {t.common.appName}
-      </div>
+      </Link>
       <h1 className="text-center text-2xl font-bold">
         {isSignup ? t.auth.signupTitle : t.auth.loginTitle}
       </h1>
@@ -64,12 +79,42 @@ export function AuthForm({
         {isSignup ? t.auth.signupSubtitle : t.auth.loginSubtitle}
       </p>
 
-      <form onSubmit={onSubmit} className="mt-8 space-y-4">
+      {/* Social sign-in — always visible; unconfigured providers show a hint. */}
+      <div className={`mt-8 grid gap-3 ${providers.length > 1 ? "grid-cols-2" : ""}`}>
+        {providers.map((p) => {
+          const { label, Icon } = PROVIDER_META[p];
+          return (
+            <button
+              key={p}
+              type="button"
+              onClick={() => void onOAuth(p)}
+              className="inline-flex items-center justify-center gap-2 rounded-full border py-2.5 text-sm font-medium hover:bg-muted"
+            >
+              <Icon className="size-4" />
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      {providers.length === 0 && (
+        <p className="mt-3 text-center text-xs text-muted-foreground">
+          {t.auth.providersHint}
+        </p>
+      )}
+
+      <div className="my-6 flex items-center gap-3 text-xs text-muted-foreground">
+        <div className="h-px flex-1 bg-border" />
+        {isSignup ? t.auth.orSignupWithEmail : t.auth.orLoginWithEmail}
+        <div className="h-px flex-1 bg-border" />
+      </div>
+
+      <form onSubmit={onSubmit} className="space-y-4">
         {isSignup && (
           <input
             type="text"
             required
             maxLength={80}
+            autoComplete="name"
             placeholder={t.auth.name}
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -80,6 +125,7 @@ export function AuthForm({
           type="email"
           required
           maxLength={200}
+          autoComplete="email"
           placeholder={t.auth.email}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -90,6 +136,7 @@ export function AuthForm({
           required
           minLength={8}
           maxLength={128}
+          autoComplete={isSignup ? "new-password" : "current-password"}
           placeholder={t.auth.password}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -101,34 +148,13 @@ export function AuthForm({
         {error && <p className="text-sm text-red-600">{error}</p>}
         <button
           type="submit"
-          disabled={loading}
-          className="w-full rounded-full bg-foreground py-2.5 text-sm text-background disabled:opacity-50"
+          disabled={!formValid || loading}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-foreground py-2.5 text-sm text-background transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
         >
+          {loading && <Loader2 className="size-4 animate-spin" />}
           {isSignup ? t.auth.signup : t.auth.login}
         </button>
       </form>
-
-      {providers.length > 0 && (
-        <>
-          <div className="my-6 flex items-center gap-3 text-xs text-muted-foreground">
-            <div className="h-px flex-1 bg-border" />
-            {t.auth.orContinueWith}
-            <div className="h-px flex-1 bg-border" />
-          </div>
-          <div className={`grid gap-3 ${providers.length > 1 ? "grid-cols-2" : ""}`}>
-            {providers.map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => void onOAuth(p)}
-                className="rounded-full border py-2.5 text-sm capitalize hover:bg-muted"
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
 
       <p className="mt-8 text-center text-sm text-muted-foreground">
         {isSignup ? t.auth.haveAccount : t.auth.noAccount}{" "}

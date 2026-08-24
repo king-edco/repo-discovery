@@ -4,8 +4,8 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Foundry",
     short_name: "Foundry",
-    description: "Foundry",
-    start_url: "/",
+    description: "Find your next business idea in open source.",
+    start_url: "/feed",
     display: "standalone",
     background_color: "#0a0a0a",
     theme_color: "#0a0a0a",
