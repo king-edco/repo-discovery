@@ -177,4 +177,113 @@ export const TOPICS: string[] = [
   "operating-system",
   "kernel",
   "filesystem",
+
+  // Content creation & creator economy
+  "content-creation",
+  "youtube",
+  "tiktok",
+  "instagram",
+  "social-media",
+  "blog",
+  "blogging",
+  "newsletter",
+  "cms",
+  "photography",
+  "photo-editor",
+  "design",
+  "figma",
+  "canva",
+
+  // Music & audio creation
+  "music-production",
+  "spotify",
+  "soundcloud",
+  "dj",
+  "midi",
+  "guitar",
+  "piano",
+  "karaoke",
+  "radio",
+
+  // Gaming & esports
+  "esports",
+  "minecraft",
+  "steam",
+  "twitch",
+  "discord-bot",
+  "game-development",
+  "rpg",
+  "puzzle",
+  "arcade",
+
+  // Sports & outdoors
+  "sports",
+  "football",
+  "soccer",
+  "basketball",
+  "running",
+  "cycling",
+  "hiking",
+  "camping",
+
+  // Food, cooking & lifestyle
+  "recipes",
+  "cooking",
+  "food",
+  "coffee",
+  "cocktails",
+  "restaurant",
+  "travel",
+  "fashion",
+  "beauty",
+
+  // Home, DIY & garden
+  "home-automation",
+  "smart-home",
+  "gardening",
+  "diy",
+  "woodworking",
+  "3d-printing",
+
+  // Business, work & money
+  "entrepreneurship",
+  "startup",
+  "marketing",
+  "seo",
+  "e-commerce",
+  "shopify",
+  "real-estate",
+  "investing",
+  "personal-finance",
+  "budgeting",
+  "freelance",
+  "jobs",
+  "resume",
+
+  // Learning & self-improvement
+  "language-learning",
+  "courses",
+  "flashcards",
+  "quiz",
+  "meditation",
+  "habits",
+  "journaling",
+
+  // Family, pets & community
+  "parenting",
+  "pets",
+  "dogs",
+  "cats",
+  "volunteering",
+  "nonprofit",
+
+  // Entertainment & pop culture
+  "movies",
+  "tv-shows",
+  "anime",
+  "comics",
+  "books",
+  "bookmarks",
+  "memes",
+  "celebrities",
 ];

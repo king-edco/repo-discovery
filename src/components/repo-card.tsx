@@ -4,6 +4,9 @@ import type { Repo } from "@/lib/types";
 import { CommercialScorePill } from "@/components/commercial-score";
 import { formatCount, langColor, previewDescription, previewImage } from "@/lib/format";
 import { useFeedback } from "@/lib/use-user";
+import { getMessages } from "@/lib/i18n";
+
+const t = getMessages("en");
 
 export function RepoCard({ repo, scorePill }: { repo: Repo; scorePill?: number }) {
   const description = previewDescription(repo.description, repo.readme_text);
@@ -36,7 +39,7 @@ export function RepoCard({ repo, scorePill }: { repo: Repo; scorePill?: number }
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={previewImage(repo.full_name)}
-          alt={`Aperçu de ${repo.full_name}`}
+          alt={`Preview of ${repo.full_name}`}
           loading="lazy"
           className="h-auto w-full transition-transform duration-500 group-hover:scale-[1.03]"
         />
@@ -56,7 +59,7 @@ export function RepoCard({ repo, scorePill }: { repo: Repo; scorePill?: number }
         </div>
 
         <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">
-          {description || "Aucune description disponible."}
+          {description || "No description available."}
         </p>
 
         <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-2 pt-2 text-sm text-muted-foreground">
@@ -94,7 +97,7 @@ export function RepoCard({ repo, scorePill }: { repo: Repo; scorePill?: number }
                 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground"
             }`}
-            aria-label="Utile"
+            aria-label={t.feedback.useful}
             aria-pressed={isLiked}
           >
             <ThumbsUp className="size-3.5" />
@@ -107,7 +110,7 @@ export function RepoCard({ repo, scorePill }: { repo: Repo; scorePill?: number }
                 ? "bg-rose-500/10 text-rose-600 dark:text-rose-400"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground"
             }`}
-            aria-label="Pas utile"
+            aria-label={t.feedback.notUseful}
             aria-pressed={isDisliked}
           >
             <ThumbsDown className="size-3.5" />

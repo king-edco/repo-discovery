@@ -9,7 +9,10 @@ import { useOnlineStatus, useRepoFeed, type FeedSort } from "@/lib/use-feed";
 import { useSettings } from "@/lib/settings";
 import { useInterests, useFeedback } from "@/lib/use-user";
 import { OnboardingFlow } from "@/components/onboarding";
+import { getMessages } from "@/lib/i18n";
 import type { Repo } from "@/lib/types";
+
+const t = getMessages("en");
 
 type SearchState =
   | { mode: "idle" }
@@ -34,7 +37,7 @@ function ConnectionBadge({ online }: { online: boolean }) {
       }`}
     >
       {online ? <Wifi className="size-3.5" /> : <WifiOff className="size-3.5" />}
-      {online ? "En ligne" : "Hors-ligne"}
+      {online ? t.feed.online : t.feed.offline}
     </span>
   );
 }
@@ -47,9 +50,9 @@ function SortToggle({
   onSort: (s: FeedSort) => void;
 }) {
   const options: { value: FeedSort; label: string }[] = [
-    { value: "recommend", label: "Pour vous" },
-    { value: "stars", label: "Étoiles" },
-    { value: "score", label: "Potentiel" },
+    { value: "recommend", label: t.feed.forYou },
+    { value: "stars", label: t.feed.stars },
+    { value: "score", label: t.feed.potential },
   ];
   return (
     <div className="inline-flex rounded-full border border-input bg-card p-0.5 text-xs">
@@ -235,18 +238,18 @@ export function RepoFeed() {
                     {loadingMore ? (
                           <span className="size-4 animate-spin rounded-full border-2 border-muted border-t-foreground" />
                     ) : null}
-                    {loadingMore ? "Chargement…" : "Faire défiler pour plus"}
+                    {loadingMore ? t.common.loading : t.feed.scrollForMore}
                   </span>
                 </div>
               ) : !showingSearch ? (
                 <p className="pt-10 text-center text-sm text-muted-foreground">
-                  Vous êtes à la fin du feed.
+                  {t.feed.endOfFeed}
                 </p>
               ) : null}
             </>
           ) : showingSearch && search.mode !== "loading" ? (
             <p className="py-16 text-center text-sm text-muted-foreground">
-              Aucun résultat pour « {query.trim()} ».
+              {t.feed.noResults} “{query.trim()}”.
             </p>
           ) : !showingSearch && error === "offline-no-cache" ? null : null
         ) : null}
@@ -260,18 +263,17 @@ function RecommendEmptyState() {
     <div className="mb-6 rounded-2xl border border-primary/20 bg-primary/5 p-6 text-center">
       <SlidersHorizontal className="mx-auto mb-3 size-6 text-primary" />
       <p className="text-sm font-medium text-foreground">
-        Personnalisez votre feed
+        {t.feed.personalizeTitle}
       </p>
       <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-        Sélectionnez vos centres d&apos;intérêt dans les réglages pour recevoir
-        des recommandations adaptées à votre profil.
+        {t.feed.personalizeBody}
       </p>
       <Link
         href="/settings"
         className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
       >
         <SettingsIcon className="size-4" />
-        Choisir mes intérêts
+        {t.feed.personalizeCta}
       </Link>
     </div>
   );
@@ -299,17 +301,17 @@ function StickyHeader({
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-background/80 backdrop-blur-xl">
       <div className="mx-auto w-full max-w-screen-2xl px-4 py-4">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="text-xl font-bold tracking-tight text-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <h1 className="min-w-0 shrink-0 text-xl font-bold tracking-tight text-foreground">
             Foundry
           </h1>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
             <SortToggle sort={sort} onSort={onSort} />
             <NotificationBell />
             <Link
               href="/settings"
-              className="relative inline-flex size-8 items-center justify-center rounded-full border border-input bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              aria-label="Réglages"
+              className="relative inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-input bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label={t.nav.settings}
             >
               <SettingsIcon className="size-4" />
               {interestCount > 0 ? (
@@ -322,8 +324,8 @@ function StickyHeader({
               type="button"
               onClick={onReload}
               disabled={loading}
-              className="inline-flex size-8 items-center justify-center rounded-full border border-input bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
-              aria-label="Recharger"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-input bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+              aria-label={t.common.loading}
             >
               <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
             </button>
@@ -337,9 +339,9 @@ function StickyHeader({
             type="search"
             value={query}
             onChange={(e) => onQuery(e.target.value)}
-            placeholder="Rechercher un dépôt…"
+            placeholder={t.feed.searchPlaceholder}
             className="w-full rounded-full border border-input bg-card py-2.5 pl-11 pr-4 text-sm text-foreground shadow-sm transition-colors placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15"
-            aria-label="Rechercher un dépôt"
+            aria-label={t.feed.searchPlaceholder}
           />
         </div>
       </div>
@@ -351,15 +353,13 @@ function OfflineNotice({ hasCache }: { hasCache: boolean }) {
   return hasCache ? (
     <div className="mb-6 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
       <WifiOff className="size-4 shrink-0" />
-      Hors-ligne — affichage des données en cache. La connexion rétablie, les
-      données se rafraîchiront.
+      {t.feed.offlineCached}
     </div>
   ) : (
     <div className="mb-6 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-8 text-center">
-      <p className="font-medium text-destructive">Hors-ligne</p>
+      <p className="font-medium text-destructive">{t.feed.offline}</p>
       <p className="mt-1 text-sm text-muted-foreground">
-        Aucune donnée en cache pour cette requête. Reconnectez-vous pour
-        charger le feed.
+        {t.feed.offlineNoCache}
       </p>
     </div>
   );

@@ -36,6 +36,21 @@ export async function GET(request: Request) {
   const offsetRaw = Number(sp.get("offset"));
   const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.floor(offsetRaw) : 0;
 
-  const recs = getRecommendations({ userId: user.id, interests, likedRepoIds: liked, dislikedRepoIds: disliked, limit, offset });
+  let recs = getRecommendations({ userId: user.id, interests, likedRepoIds: liked, dislikedRepoIds: disliked, limit, offset });
+
+  // Never return an empty personalized feed: a cold-start user (no likes, few
+  // or unmatched interests, or a corpus with no embeddings) would see a blank
+  // screen. Fall back to the plain popular feed so there is always content;
+  // the client renders it under the same "For you" tab.
+  if (recs.length === 0) {
+    recs = getRecommendations({
+      userId: user.id,
+      interests: [],
+      likedRepoIds: [],
+      dislikedRepoIds: disliked,
+      limit,
+      offset,
+    });
+  }
   return Response.json(recs);
 }
