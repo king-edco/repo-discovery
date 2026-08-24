@@ -355,3 +355,6 @@ Package manager: **pnpm** (`packageManager: pnpm@11.20.0`).
 - **Build gotcha**: concurrent Next page-data workers opening the SQLite file
   need `busy_timeout = 5000` in `createDb()` or the build dies with
   SQLITE_BUSY.
+- **"Invalid origin" behind a reverse proxy**: Better Auth CSRF check compares the Origin header to trusted origins; the static list (computed at init) never includes the browser-facing origin when a proxy (traefik) rewrites Host. Fix in `src/lib/auth.ts`: dynamic `baseURL` (`allowedHosts` + `protocol: "auto"` + `fallback`) with `advanced.trustedProxyHeaders: true` so the origin derives from x-forwarded-host per request. Set `BETTER_AUTH_URL` in prod to pin one static origin. Extra preview hosts: `BETTER_AUTH_ALLOWED_HOSTS` (comma-separated, wildcards).
+- **Next.js routing**: directories starting with `_` are private — never routed.
+- **lucide-react**: no `Chrome`/`Github` exports in the installed version — use `Globe`/`Code2`.
