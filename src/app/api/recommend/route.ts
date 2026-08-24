@@ -1,5 +1,6 @@
 import { getRecommendations } from "@/lib/recommendation";
-import { isValidEntityId, isValidUserId } from "@/lib/security";
+import { isValidEntityId } from "@/lib/security";
+import { requireUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -18,15 +19,14 @@ function parseIdList(raw: string | null, max: number): string[] {
     .slice(0, max);
 }
 
-// GET /api/recommend?userId=...&interests=react,python&liked=id1,id2&disliked=id3&limit=24&offset=0
+// GET /api/recommend?interests=react,python&liked=id1,id2&disliked=id3&limit=24&offset=0
 // Returns the adaptive feed: repos ranked by interest match + semantic
 // affinity (centroid of liked repos) + popularity. Disliked repos excluded.
+// The user comes from the session.
 export async function GET(request: Request) {
+  const { user, error } = await requireUser();
+  if (error) return error;
   const sp = new URL(request.url).searchParams;
-  const userId = sp.get("userId");
-  if (!isValidUserId(userId)) {
-    return Response.json({ error: "valid userId required" }, { status: 400 });
-  }
 
   const interests = parseIdList(sp.get("interests"), MAX_INTERESTS);
   const liked = parseIdList(sp.get("liked"), MAX_LIST);
@@ -36,6 +36,6 @@ export async function GET(request: Request) {
   const offsetRaw = Number(sp.get("offset"));
   const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.floor(offsetRaw) : 0;
 
-  const recs = getRecommendations({ userId, interests, likedRepoIds: liked, dislikedRepoIds: disliked, limit, offset });
+  const recs = getRecommendations({ userId: user.id, interests, likedRepoIds: liked, dislikedRepoIds: disliked, limit, offset });
   return Response.json(recs);
 }

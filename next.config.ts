@@ -12,6 +12,11 @@ const withSerwist = withSerwistInit({
 // anti-FOUC theme script and Next's bootstrap scripts; img-src allows remote
 // images because README markdown renders images hosted anywhere. HSTS is only
 // sent in production (the app is served over HTTPS there).
+// connect-src adds the PostHog host only when analytics is configured, so the
+// CSP stays tight for self-hosters who don't enable it.
+const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_KEY
+  ? (process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://us.i.posthog.com")
+  : null;
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
@@ -28,7 +33,7 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: https:",
       "font-src 'self'",
-      "connect-src 'self'",
+      `connect-src 'self'${posthogHost ? ` ${posthogHost}` : ""}`,
       "worker-src 'self'",
       "manifest-src 'self'",
       "object-src 'none'",

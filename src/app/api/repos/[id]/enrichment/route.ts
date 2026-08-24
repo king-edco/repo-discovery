@@ -4,6 +4,7 @@ import { repos } from "@/db/schema";
 import { computeCommercialScore, findCompetitors, findRelatedDemandSignals } from "@/lib/hybrid-search";
 import { generateEnrichment, enrichmentAvailable } from "@/lib/ai-enrichment";
 import { isAdminRequest } from "@/lib/security";
+import { isPro, requireUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -11,11 +12,17 @@ export const dynamic = "force-dynamic";
 // Returns the cached plain-language summary + business pitch for a repo. If
 // not yet generated (or stale), generates on demand using the heuristic (or
 // Gemini if GEMINI_API_KEY is set), caches to the repos row, then returns.
+// The plain summary is free; the business pitch is cross-data (competitors,
+// demand signals, commercial score) and only returned to Pro users.
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+
+  const { user, error: authError } = await requireUser();
+  if (authError) return authError;
+  const pro = isPro(user);
   // Force-regeneration spends paid Gemini quota and writes to the DB, so it
   // requires the server-configured ENRICHMENT_ADMIN_KEY (x-admin-key header).
   // Without it, `force` is rejected and only the cached/heuristic path runs.
@@ -48,7 +55,8 @@ export async function GET(
   if (!force && repo.plain_summary && repo.business_pitch) {
     return Response.json({
       plainSummary: repo.plain_summary,
-      businessPitch: repo.business_pitch,
+      businessPitch: pro ? repo.business_pitch : null,
+      pitchLocked: !pro,
       source: repo.enrichment_source ?? "heuristic",
       cachedAt: repo.enriched_at,
       geminiAvailable: enrichmentAvailable(),
@@ -75,7 +83,10 @@ export async function GET(
     .run();
 
   return Response.json({
-    ...enrichment,
+    plainSummary: enrichment.plainSummary,
+    businessPitch: pro ? enrichment.businessPitch : null,
+    pitchLocked: !pro,
+    source: enrichment.source,
     cachedAt: now,
     geminiAvailable: enrichmentAvailable(),
   });

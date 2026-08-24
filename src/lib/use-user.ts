@@ -1,11 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useUserId } from "@/lib/user-id";
 
 // Client-side store for interests + feedback, synced to the server (SQLite via
-// the recommendation API). Interests and feedback also persist in localStorage
-// so the client knows its state without a round-trip on every render.
+// the API). The user identity comes from the auth session — no userId is ever
+// sent by the client. localStorage caches keep the UI instant between renders.
 
 type InterestState = { topics: string[]; loading: boolean };
 type FeedbackState = { liked: string[]; disliked: string[]; loading: boolean };
@@ -33,7 +32,6 @@ function writeCache<T>(key: string, value: T): void {
 }
 
 export function useInterests() {
-  const userId = useUserId();
   const [state, setState] = useState<InterestState>({
     topics: typeof window !== "undefined" ? readCache<string[]>(INTEREST_CACHE_KEY, []) : [],
     loading: true,
@@ -41,12 +39,14 @@ export function useInterests() {
 
   // Load from server on mount (authoritative).
   useEffect(() => {
-    if (userId === "anon") return;
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(`/api/user/interests?userId=${encodeURIComponent(userId)}`);
-        if (!res.ok) return;
+        const res = await fetch("/api/user/interests");
+        if (!res.ok) {
+          if (!cancelled) setState((s) => ({ ...s, loading: false }));
+          return;
+        }
         const data = (await res.json()) as string[];
         if (cancelled) return;
         setState({ topics: data, loading: false });
@@ -58,30 +58,26 @@ export function useInterests() {
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, []);
 
-  const setInterests = useCallback(
-    async (topics: string[]) => {
-      setState({ topics, loading: false });
-      writeCache(INTEREST_CACHE_KEY, topics);
-      try {
-        await fetch(`/api/user/interests?userId=${encodeURIComponent(userId)}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(topics),
-        });
-      } catch {
-        /* server sync best-effort */
-      }
-    },
-    [userId],
-  );
+  const setInterests = useCallback(async (topics: string[]) => {
+    setState({ topics, loading: false });
+    writeCache(INTEREST_CACHE_KEY, topics);
+    try {
+      await fetch("/api/user/interests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(topics),
+      });
+    } catch {
+      /* server sync best-effort */
+    }
+  }, []);
 
   return { ...state, setInterests };
 }
 
 export function useFeedback() {
-  const userId = useUserId();
   const [state, setState] = useState<FeedbackState>(() => {
     if (typeof window === "undefined") return { liked: [], disliked: [], loading: true };
     const cached = readCache<{ liked: string[]; disliked: string[] }>(FEEDBACK_CACHE_KEY, { liked: [], disliked: [] });
@@ -89,12 +85,14 @@ export function useFeedback() {
   });
 
   useEffect(() => {
-    if (userId === "anon") return;
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(`/api/user/feedback?userId=${encodeURIComponent(userId)}`);
-        if (!res.ok) return;
+        const res = await fetch("/api/user/feedback");
+        if (!res.ok) {
+          if (!cancelled) setState((s) => ({ ...s, loading: false }));
+          return;
+        }
         const data = (await res.json()) as { liked: string[]; disliked: string[] };
         if (cancelled) return;
         setState({ ...data, loading: false });
@@ -106,7 +104,7 @@ export function useFeedback() {
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, []);
 
   const vote = useCallback(
     async (repoId: string, feedback: "like" | "dislike", reason?: string) => {
@@ -120,37 +118,34 @@ export function useFeedback() {
         return { ...next, loading: false };
       });
       try {
-        await fetch(`/api/user/feedback`, {
+        await fetch("/api/user/feedback", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId, repoId, feedback, reason }),
+          body: JSON.stringify({ repoId, feedback, reason }),
         });
       } catch {
         /* best-effort */
       }
     },
-    [userId],
+    [],
   );
 
-  const removeVote = useCallback(
-    async (repoId: string) => {
-      setState((s) => {
-        const liked = s.liked.filter((id) => id !== repoId);
-        const disliked = s.disliked.filter((id) => id !== repoId);
-        const next = { liked, disliked };
-        writeCache(FEEDBACK_CACHE_KEY, next);
-        return { ...next, loading: false };
+  const removeVote = useCallback(async (repoId: string) => {
+    setState((s) => {
+      const liked = s.liked.filter((id) => id !== repoId);
+      const disliked = s.disliked.filter((id) => id !== repoId);
+      const next = { liked, disliked };
+      writeCache(FEEDBACK_CACHE_KEY, next);
+      return { ...next, loading: false };
+    });
+    try {
+      await fetch(`/api/user/feedback?repoId=${encodeURIComponent(repoId)}`, {
+        method: "DELETE",
       });
-      try {
-        await fetch(`/api/user/feedback?userId=${encodeURIComponent(userId)}&repoId=${encodeURIComponent(repoId)}`, {
-          method: "DELETE",
-        });
-      } catch {
-        /* best-effort */
-      }
-    },
-    [userId],
-  );
+    } catch {
+      /* best-effort */
+    }
+  }, []);
 
   return { ...state, vote, removeVote };
 }

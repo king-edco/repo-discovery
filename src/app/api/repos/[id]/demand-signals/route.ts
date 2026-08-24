@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { repos } from "@/db/schema";
 import { findRelatedDemandSignals } from "@/lib/hybrid-search";
+import { requireUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,10 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+
+  // Cross-data matching is a Pro feature.
+  const { error } = await requireUser({ pro: true });
+  if (error) return error;
 
   const db = getDb();
   const repo = db

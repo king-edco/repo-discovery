@@ -1,12 +1,17 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Sparkles, Lightbulb, RefreshCw, FileText } from "lucide-react";
+import { Sparkles, Lightbulb, Lock, RefreshCw, FileText } from "lucide-react";
 import { Markdown } from "@/components/markdown";
+import { getMessages } from "@/lib/i18n";
+
+const t = getMessages("en");
 
 type EnrichmentData = {
   plainSummary: string;
-  businessPitch: string;
+  businessPitch: string | null;
+  pitchLocked?: boolean;
   source: "heuristic" | "gemini";
   cachedAt: string | null;
   geminiAvailable: boolean;
@@ -90,13 +95,28 @@ export function RepoEnrichment({ repoId }: { repoId: string }) {
         <p className="text-[15px] leading-relaxed text-foreground/90">{data.plainSummary}</p>
       </section>
 
-      {/* Business pitch */}
+      {/* Business pitch — Pro-only cross-data insight */}
       <section className="rounded-xl border border-primary/20 bg-primary/5 p-4">
         <h3 className="mb-2 inline-flex items-center gap-2 text-sm font-semibold tracking-tight text-foreground">
           <Lightbulb className="size-4 text-amber-500" />
           Idée de business
         </h3>
-        <p className="text-[15px] leading-relaxed text-foreground/90">{data.businessPitch}</p>
+        {data.pitchLocked ? (
+          <div className="flex flex-col items-start gap-3">
+            <p className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+              <Lock className="size-3.5" />
+              {t.locked.title} — {t.locked.body}
+            </p>
+            <Link
+              href="/settings"
+              className="rounded-full bg-foreground px-4 py-1.5 text-xs font-medium text-background"
+            >
+              {t.locked.cta}
+            </Link>
+          </div>
+        ) : (
+          <p className="text-[15px] leading-relaxed text-foreground/90">{data.businessPitch}</p>
+        )}
       </section>
     </div>
   );

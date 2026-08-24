@@ -314,3 +314,44 @@ Package manager: **pnpm** (`packageManager: pnpm@11.20.0`).
   at 200; interests capped at 50×64 chars; feedback reason at 280 chars.
 - `/api/repos?sort=score` must keep its SQL-level `LIMIT` — never `.all()`
   the repos table in a request path (embedding JSON is ~7KB/row).
+
+## Auth / Pro platform (2026-08-24)
+
+- **Auth: Better Auth 1.7** (email/password + GitHub/Google OAuth), Drizzle
+  adapter on the same SQLite file (`src/lib/auth.ts`, handler at
+  `/api/auth/[...all]`). `src/lib/session.ts` — `getSession()`,
+  `requireUser()` (401), `requireUser({ pro: true })` (402), `isPro()`. Every
+  user-scoped API takes the identity from the session — the old anonymous
+  `userId` params are gone (`src/lib/user-id.ts` deleted; `use-user.ts` hooks
+  send no userId).
+- **better-auth 1.7 requires an `issuer` column on `account`** ("credential"
+  for email/password, OAuth issuer URL otherwise). Without it sign-up creates
+  the user row then fails on the account insert → "Invalid email or password"
+  forever. The drizzle schema + CREATE TABLE + ALTER guard all include it.
+- **`plan` on `user`** (`free`|`pro`, additionalFields → flows into the
+  session user object). Pro-only (server-enforced 403/402): competitors,
+  demand-signals, commercial-score, `?sort=score`, business pitch (enrichment
+  returns `pitchLocked: true` + null pitch for free).
+- **Stripe** via plain REST (no SDK) in `src/app/api/billing/*`: checkout
+  session + webhook signature verified manually (HMAC-SHA256, timing-safe,
+  5-min tolerance); webhook flips `plan` to `pro`. 503 when unconfigured.
+- **Email** via Resend REST (`src/lib/email.ts`): feedback forwarding
+  (`/api/feedback` + repo feedback reasons → `FEEDBACK_INBOX_EMAIL`).
+  Fire-and-forget — email failure never fails the request.
+- **Notifications**: `notifications` table (type/title/body/repoId/read),
+  `/api/notifications` (GET list+unread, POST mark read), bell in the feed
+  header, `pnpm notify-digest` script (interest-matched new repos, idempotent
+  per day).
+- **Saved ideas**: `saved_ideas` table + `/api/saved-ideas` + bookmark button
+  on repo detail + `/saved` page.
+- **i18n foundation**: `src/lib/i18n/` — `en.ts` catalog + `getMessages()`;
+  English is default. New UI strings go through the catalog.
+- **Analytics**: PostHog (`posthog-provider.tsx`), active only with
+  `NEXT_PUBLIC_POSTHOG_KEY`; CSP `connect-src` in next.config.ts adds the
+  PostHog host only when analytics is on.
+- **Routes**: `/` is the pre-login landing (redirects authed users to
+  `/feed`); feed moved from `/` to `/feed`; `/login`, `/signup`, `/saved`,
+  `/notifications` added.
+- **Build gotcha**: concurrent Next page-data workers opening the SQLite file
+  need `busy_timeout = 5000` in `createDb()` or the build dies with
+  SQLITE_BUSY.

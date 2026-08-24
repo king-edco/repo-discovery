@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { ArrowLeft, Star, Scale, TrendingUp, Calendar, ExternalLink } from "lucide-react";
+import { notFound, redirect } from "next/navigation";
+import { ArrowLeft, Star, Scale, TrendingUp, Calendar, ExternalLink, Lock } from "lucide-react";
 import { getDb } from "@/db";
 import { repos } from "@/db/schema";
 import { RelatedDemandSignals } from "@/components/related-demand-signals";
@@ -9,21 +9,42 @@ import { CompetitiveLandscape } from "@/components/competitive-landscape";
 import { CommercialScoreCard } from "@/components/commercial-score";
 import { RepoEnrichment, ReadmeToggle } from "@/components/repo-enrichment";
 import { FeedbackButtons } from "@/components/feedback-buttons";
+import { SaveIdeaButton } from "@/components/save-idea-button";
 import { computeCommercialScore, findCompetitors, findRelatedDemandSignals } from "@/lib/hybrid-search";
 import { formatCount, langColor, parseTopics, previewImage } from "@/lib/format";
 import { safeExternalUrl } from "@/lib/security";
+import { getSession, isPro } from "@/lib/session";
+import { getMessages } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
 function BackLink() {
   return (
     <Link
-      href="/"
+      href="/feed"
       className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
     >
       <ArrowLeft className="size-4" />
       Retour au feed
     </Link>
+  );
+}
+
+// Upsell placeholder shown to free users in place of cross-data insights.
+function LockedInsights() {
+  const t = getMessages("en");
+  return (
+    <section className="rounded-2xl border border-dashed border-border bg-muted/40 p-8 text-center">
+      <Lock className="mx-auto size-6 text-muted-foreground" />
+      <h2 className="mt-3 text-lg font-semibold text-foreground">{t.locked.title}</h2>
+      <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">{t.locked.body}</p>
+      <Link
+        href="/settings"
+        className="mt-4 inline-flex items-center gap-2 rounded-full bg-foreground px-5 py-2.5 text-sm font-medium text-background"
+      >
+        {t.locked.cta}
+      </Link>
+    </section>
   );
 }
 
@@ -41,6 +62,11 @@ export default async function RepoDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+
+  const session = await getSession();
+  if (!session) redirect("/login");
+  const pro = isPro(session.user as { plan?: string });
+
   const db = getDb();
   const repo = db
     .select({
@@ -66,20 +92,12 @@ export default async function RepoDetailPage({
 
   const topics = parseTopics(repo.topics);
 
-  // Demand-signal matching via hybrid search: sqlite-vec KNN (cosine) + FTS5
-  // BM25, fused by Reciprocal Rank Fusion. Captures both semantic neighbours
-  // and exact-term lexical matches the embedding alone would smooth over.
-  const repoVec = repo.embedding ? (JSON.parse(repo.embedding) as number[]) : null;
-  const demandMatches = findRelatedDemandSignals(repo, repoVec);
-
-  // Commercial competitors (Wikidata corpus) via the same hybrid search over
-  // market_competitors. Embedding-driven, so it works for any repo without
-  // category wiring.
-  const competitors = findCompetitors(repo, repoVec);
-
-  // On-demand 0–100 commercial-potential score folding demand intensity,
-  // license weight, and competitive saturation. Not stored.
-  const commercialScore = computeCommercialScore(repo, repoVec);
+  // Cross-data insights (demand signals, competitors, commercial score) are
+  // Pro-only — skip the KNN/BM25 work entirely for free users.
+  const repoVec = pro && repo.embedding ? (JSON.parse(repo.embedding) as number[]) : null;
+  const demandMatches = pro ? findRelatedDemandSignals(repo, repoVec) : [];
+  const competitors = pro ? findCompetitors(repo, repoVec) : [];
+  const commercialScore = pro ? computeCommercialScore(repo, repoVec) : null;
 
   return (
     <main className="min-h-screen bg-background">
@@ -167,8 +185,8 @@ export default async function RepoDetailPage({
           </section>
         ) : null}
 
-        {/* View on GitHub link */}
-        <div className="mt-6">
+        {/* View on GitHub link + save idea */}
+        <div className="mt-6 flex flex-wrap items-center gap-3">
           <a
             href={safeExternalUrl(repo.url) ?? "#"}
             target="_blank"
@@ -178,6 +196,7 @@ export default async function RepoDetailPage({
             <ExternalLink className="size-4" />
             Voir sur GitHub
           </a>
+          <SaveIdeaButton repoId={repo.id} />
         </div>
 
         <hr className="my-8 border-border" />
@@ -216,18 +235,22 @@ export default async function RepoDetailPage({
 
         <hr className="my-8 border-border" />
 
-        {/* Commercial potential score */}
-        <CommercialScoreCard score={commercialScore} />
+        {/* Cross-data insights: commercial score, competitors, demand signals */}
+        {pro && commercialScore ? (
+          <>
+            <CommercialScoreCard score={commercialScore} />
 
-        <hr className="my-8 border-border" />
+            <hr className="my-8 border-border" />
 
-        {/* Competitive landscape */}
-        <CompetitiveLandscape competitors={competitors} />
+            <CompetitiveLandscape competitors={competitors} />
 
-        <hr className="my-8 border-border" />
+            <hr className="my-8 border-border" />
 
-        {/* Demand-signal matching */}
-        <RelatedDemandSignals signals={demandMatches} />
+            <RelatedDemandSignals signals={demandMatches} />
+          </>
+        ) : (
+          <LockedInsights />
+        )}
       </div>
     </main>
   );

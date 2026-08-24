@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Search, Settings as SettingsIcon, RefreshCw, Wifi, WifiOff, SlidersHorizontal } from "lucide-react";
 import { RepoCard } from "@/components/repo-card";
+import { NotificationBell } from "@/components/notification-bell";
 import { useOnlineStatus, useRepoFeed, type FeedSort } from "@/lib/use-feed";
 import { useSettings } from "@/lib/settings";
 import { useInterests, useFeedback } from "@/lib/use-user";
@@ -304,6 +305,7 @@ function StickyHeader({
           </h1>
           <div className="flex items-center gap-2">
             <SortToggle sort={sort} onSort={onSort} />
+            <NotificationBell />
             <Link
               href="/settings"
               className="relative inline-flex size-8 items-center justify-center rounded-full border border-input bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"

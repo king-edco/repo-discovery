@@ -2,6 +2,7 @@ import { desc, gte } from "drizzle-orm";
 import { getDb } from "@/db";
 import { repos } from "@/db/schema";
 import { computeCommercialScore } from "@/lib/hybrid-search";
+import { isPro, requireUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -20,9 +21,21 @@ const DEFAULT_LIMIT = 24;
 const MAX_LIMIT = 100;
 
 export async function GET(request: Request) {
+  const { user, error } = await requireUser();
+  if (error) return error;
+
   const sp = new URL(request.url).searchParams;
   const minStars = parseMinStars(sp.get("minStars"));
   const sortBy = sp.get("sort");
+
+  // sort=score ranks by the commercial score, which is derived from
+  // cross-data matching — a Pro feature.
+  if (sortBy === "score" && !isPro(user)) {
+    return Response.json(
+      { error: "Score ranking requires the Pro plan.", upgrade: true },
+      { status: 403 },
+    );
+  }
 
   const limit = Math.min(
     Math.max(Number(sp.get("limit")) || DEFAULT_LIMIT, 1),
