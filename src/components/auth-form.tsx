@@ -34,15 +34,19 @@ export function AuthForm({
   const [loading, setLoading] = useState(false);
 
   const isSignup = mode === "signup";
+  const [touched, setTouched] = useState(false);
 
-  // Submit activates only when every visible field is filled and valid.
-  const formValid =
-    EMAIL_RE.test(email.trim()) &&
-    password.length >= 8 &&
-    (!isSignup || name.trim().length > 0);
+  // Per-field validity — drives both the inline hints and the submit guard.
+  // The button is never hard-disabled (a disabled button gives no feedback);
+  // the submit handler validates on click and shows exactly what to fix.
+  const nameValid = !isSignup || name.trim().length > 0;
+  const emailValid = EMAIL_RE.test(email.trim());
+  const passwordValid = password.length >= 8;
+  const formValid = nameValid && emailValid && passwordValid;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setTouched(true);
     if (!formValid || loading) return;
     setError(null);
     setLoading(true);
@@ -145,11 +149,23 @@ export function AuthForm({
         {isSignup && (
           <p className="text-xs text-muted-foreground">{t.auth.passwordHint}</p>
         )}
+        {touched && !formValid && (
+          <ul className="space-y-1 text-xs text-red-600">
+            {!nameValid && <li>{t.auth.nameRequired}</li>}
+            {!emailValid && <li>{t.auth.emailInvalid}</li>}
+            {!passwordValid && <li>{t.auth.passwordShort}</li>}
+          </ul>
+        )}
         {error && <p className="text-sm text-red-600">{error}</p>}
         <button
           type="submit"
-          disabled={!formValid || loading}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-foreground py-2.5 text-sm text-background transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={loading}
+          aria-disabled={!formValid}
+          className={`inline-flex w-full items-center justify-center gap-2 rounded-full py-2.5 text-sm transition-opacity disabled:opacity-60 ${
+            formValid
+              ? "bg-foreground text-background"
+              : "bg-foreground/50 text-background"
+          }`}
         >
           {loading && <Loader2 className="size-4 animate-spin" />}
           {isSignup ? t.auth.signup : t.auth.login}
