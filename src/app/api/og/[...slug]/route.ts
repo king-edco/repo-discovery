@@ -1,9 +1,14 @@
 import sharp from "sharp";
+import { ogCacheGet, ogCacheSet, ogCacheDelete, ogCacheSweep } from "@/lib/og-cache";
 
 export const dynamic = "force-dynamic";
 
 const UPSTREAM = "https://opengraph.githubassets.com/1/";
-const TTL = 60 * 60; // 1h
+// Images are content-stable per repo (the trimmed card changes only when
+// GitHub re-renders it), so we cache aggressively: memory for the hot set,
+// disk forever, and a long immutable browser cache. ?refresh=1 busts all.
+const TTL = 60 * 60 * 24 * 7; // 7 days browser cache
+const IMMUTABLE = `public, max-age=${TTL}, s-maxage=${TTL}, immutable`;
 
 // In-process cache of trimmed images. Upstream (githubassets) is flaky under
 // load, so memoizing the trimmed buffer per repo avoids re-hitting it on every
@@ -64,18 +69,22 @@ export async function GET(request: Request, ctx: RouteContext<"/api/og/[...slug]
   // without restarting the server. Useful when debugging ingestion of new repos.
   const refresh = new URL(request.url).searchParams.has("refresh");
   if (!refresh) {
-    const cached = cache.get(fullName);
-    if (cached) {
-      return new Response(new Uint8Array(cached), {
-        headers: {
-          "Content-Type": "image/png",
-          "Cache-Control": `public, max-age=${TTL}, s-maxage=${TTL}`,
-          "X-Content-Type-Options": "nosniff",
-        },
+    const mem = cache.get(fullName);
+    if (mem) {
+      return new Response(new Uint8Array(mem), {
+        headers: { "Content-Type": "image/png", "Cache-Control": IMMUTABLE, "X-Content-Type-Options": "nosniff" },
+      });
+    }
+    const disk = ogCacheGet(fullName);
+    if (disk) {
+      cacheSet(fullName, disk); // warm memory for subsequent hits this run
+      return new Response(new Uint8Array(disk), {
+        headers: { "Content-Type": "image/png", "Cache-Control": IMMUTABLE, "X-Content-Type-Options": "nosniff" },
       });
     }
   } else {
     cache.delete(fullName);
+    ogCacheDelete(fullName);
   }
 
   let upstream: ArrayBuffer | null = null;
@@ -118,21 +127,16 @@ export async function GET(request: Request, ctx: RouteContext<"/api/og/[...slug]
       .toBuffer();
 
     cacheSet(fullName, trimmed);
+    ogCacheSet(fullName, trimmed);
+    if (Math.random() < 0.02) ogCacheSweep(); // amortized LRU sweep
     return new Response(new Uint8Array(trimmed), {
-      headers: {
-        "Content-Type": "image/png",
-        "Cache-Control": `public, max-age=${TTL}, s-maxage=${TTL}`,
-        "X-Content-Type-Options": "nosniff",
-      },
+      headers: { "Content-Type": "image/png", "Cache-Control": IMMUTABLE, "X-Content-Type-Options": "nosniff" },
     });
   } catch {
     // Sharp failed for some reason — fall back to the raw upstream bytes so the
     // card still shows something rather than a broken image.
     return new Response(new Uint8Array(upstream), {
-      headers: {
-        "Content-Type": "image/png",
-        "Cache-Control": `public, max-age=${TTL}, s-maxage=${TTL}`,
-      },
+      headers: { "Content-Type": "image/png", "Cache-Control": IMMUTABLE },
     });
   }
 }

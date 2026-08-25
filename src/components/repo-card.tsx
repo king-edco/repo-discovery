@@ -36,12 +36,27 @@ export function RepoCard({ repo, scorePill }: { repo: Repo; scorePill?: number }
       className="group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card transition-all hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="relative w-full overflow-hidden bg-muted">
+        {/* Placeholder shimmer while the (possibly cold) preview loads, so a
+            cold OG fetch doesn't render as a broken/blank card. */}
+        <div className="aspect-[2/1] w-full animate-pulse bg-muted" aria-hidden="true" />
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={previewImage(repo.full_name)}
           alt={`Preview of ${repo.full_name}`}
           loading="lazy"
-          className="h-auto w-full transition-transform duration-500 group-hover:scale-[1.03]"
+          onLoad={(e) => {
+            // Reveal the image and drop the placeholder once loaded.
+            const img = e.currentTarget;
+            img.style.opacity = "1";
+            const ph = img.previousElementSibling as HTMLElement | null;
+            if (ph) ph.style.display = "none";
+          }}
+          onError={(e) => {
+            // Keep the placeholder (shimmer) if the preview can't be fetched,
+            // rather than a broken-image icon.
+            e.currentTarget.style.display = "none";
+          }}
+          className="absolute inset-0 h-auto w-full opacity-0 transition-opacity duration-300 group-hover:scale-[1.03]"
         />
         {scorePill !== undefined ? (
           <div className="absolute right-2 top-2">

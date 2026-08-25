@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Search, Settings as SettingsIcon, RefreshCw, Wifi, WifiOff, SlidersHorizontal } from "lucide-react";
 import { RepoCard } from "@/components/repo-card";
 import { NotificationBell } from "@/components/notification-bell";
@@ -72,10 +73,38 @@ function SortToggle({
   );
 }
 
+const FEED_SCROLL_KEY = "foundry.feed.scroll.v1";
+const VALID_SORTS: FeedSort[] = ["recommend", "stars", "score"];
+
 export function RepoFeed() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background" />}>
+      <FeedInner />
+    </Suspense>
+  );
+}
+
+function FeedInner() {
   const { settings } = useSettings();
   const minStars = settings.minStars;
-  const [sort, setSort] = useState<FeedSort>("recommend");
+
+  // Sort lives in the URL so navigating to a repo and BACK restores the tab
+  // you were on (instead of resetting to "For you"), and the view is
+  // shareable/bookmarkable.
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const rawSort = searchParams.get("sort") as FeedSort | null;
+  const sort: FeedSort = rawSort && VALID_SORTS.includes(rawSort) ? rawSort : "recommend";
+  const setSort = useCallback(
+    (s: FeedSort) => {
+      const sp = new URLSearchParams(searchParams.toString());
+      sp.set("sort", s);
+      router.replace(`${pathname}?${sp.toString()}`, { scroll: false });
+    },
+    [router, pathname, searchParams],
+  );
+
   const { topics: interests } = useInterests();
   const { liked, disliked } = useFeedback();
   const { repos, loading, loadingMore, hasMore, error, online, reload, loadMore } =
@@ -129,6 +158,38 @@ export function RepoFeed() {
     const handle = setTimeout(() => void runSearch(query), 350);
     return () => clearTimeout(handle);
   }, [query, runSearch]);
+
+  // Scroll restore: save position when navigating away to a repo detail,
+  // restore it when the user comes back — so "back" returns to the exact spot
+  // in the feed, not the top.
+  useEffect(() => {
+    const saved = sessionStorage.getItem(FEED_SCROLL_KEY);
+    if (saved !== null) {
+      sessionStorage.removeItem(FEED_SCROLL_KEY);
+      const y = Number(saved);
+      if (Number.isFinite(y) && y > 0) {
+        // Wait a tick for the feed to render before scrolling.
+        requestAnimationFrame(() => window.scrollTo(0, y));
+      }
+    }
+    const save = () => {
+      try {
+        sessionStorage.setItem(FEED_SCROLL_KEY, String(window.scrollY));
+      } catch {
+        /* ignore */
+      }
+    };
+    // Save on any repo-card click (the Link navigation) and on pagehide.
+    const onClick = (e: MouseEvent) => {
+      if ((e.target as HTMLElement).closest('a[href^="/repos/"]')) save();
+    };
+    document.addEventListener("click", onClick, true);
+    window.addEventListener("pagehide", save);
+    return () => {
+      document.removeEventListener("click", onClick, true);
+      window.removeEventListener("pagehide", save);
+    };
+  }, []);
 
   const showingSearch =
     search.mode === "results" || search.mode === "loading" || query.trim() !== "";

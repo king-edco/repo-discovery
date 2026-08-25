@@ -238,6 +238,18 @@ function createDb(): DB {
   createVecTables();
   createFtsTables();
 
+  // Start the ingestion scheduler once the DB is ready (server runtime only,
+  // production only, and not during `next build` page-data workers — those
+  // would each spawn their own ingestion loop). Idempotent via the module's
+  // internal guard. Dynamic import to avoid a module cycle (scheduler → db).
+  if (
+    typeof window === "undefined" &&
+    process.env.NODE_ENV === "production" &&
+    !process.env.NEXT_PHASE?.includes("build")
+  ) {
+    void import("@/lib/scheduler").then((m) => m.startScheduler()).catch(() => {});
+  }
+
   return db;
 }
 

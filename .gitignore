@@ -58,6 +58,9 @@ next-env.d.ts
 /data/*.db-wal
 /data/*.db-shm
 
+# OG preview image disk cache (regenerable from upstream)
+/data/og-cache/
+
 # agent + dev logs
 /logs/
 .agents_tmp/

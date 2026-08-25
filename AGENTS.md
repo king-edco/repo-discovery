@@ -358,3 +358,39 @@ Package manager: **pnpm** (`packageManager: pnpm@11.20.0`).
 - **"Invalid origin" behind a reverse proxy**: Better Auth CSRF check compares the Origin header to trusted origins; the static list (computed at init) never includes the browser-facing origin when a proxy (traefik) rewrites Host. Fix in `src/lib/auth.ts`: dynamic `baseURL` (`allowedHosts` + `protocol: "auto"` + `fallback`) with `advanced.trustedProxyHeaders: true` so the origin derives from x-forwarded-host per request. Set `BETTER_AUTH_URL` in prod to pin one static origin. Extra preview hosts: `BETTER_AUTH_ALLOWED_HOSTS` (comma-separated, wildcards).
 - **Next.js routing**: directories starting with `_` are private — never routed.
 - **lucide-react**: no `Chrome`/`Github` exports in the installed version — use `Globe`/`Code2`.
+
+## Adaptive engine + self-driving ingestion (2026-08-25)
+
+- **Recommendation is filter-first now** (`src/lib/recommendation.ts`). Old
+  bug: it ranked the GLOBAL top-200-by-stars pool for every user, so interests
+  could never change WHICH repos appeared. Now the pool is built FROM the user
+  profile (interest-topic SQL matches ∪ KNN of the profile vector ∪ KNN of the
+  liked centroid) + a popularity floor, then ranked (semantic .5 + topic .25 +
+  popularity .15 + freshness .10 − dislike penalty), diversified with MMR
+  (λ=0.72), and woven with a ~20% explore slice. The profile vector = embedded
+  interest keywords (e5 `query:`) blended with the liked centroid (0.7/0.3);
+  liked repos' topics become implicit interests (LIKE_TOPIC_WEIGHT), disliked
+  repos' topics get negative weight. `getRecommendations` is now async (embeds
+  interests once per request, 5-min cache).
+- **Self-driving ingestion** (`src/lib/scheduler.ts`): started from `createDb()`
+  on the server (prod, non-build) + `instrumentation.ts`. Every ~30min a tick
+  ingests a small batch: BOOTSTRAP (corpus<500) sweeps top topics; steady-state
+  picks ~4 exploit topics weighted by the interest histogram
+  (`interestHistogram()`) + ~2 random explore topics, paging deeper per topic
+  via the `ingest_topic_state` table (GitHub caps search at 10 pages/topic).
+  Shared fetch/embed/upsert/index/pre-warm primitives live in
+  `src/lib/ingest-core.ts`; `evictToCap(CORPUS_CAP=50k)` drops never-engaged
+  low-star stale repos (likes/saves protect a row). Disable with
+  `SCHEDULER_ENABLED=false` on extra instances.
+- **OG previews are disk-cached + pre-warmed**: `src/lib/og-cache.ts`
+  (sha256-keyed PNGs under `data/og-cache/`, LRU sweep at 5000 files) backs the
+  in-memory Map; the OG route checks mem→disk→upstream and serves
+  `Cache-Control: immutable, max-age=7d`. `src/lib/og-warm.ts` pre-warms each
+  ingested repo (4-wide pool, skips cached/generic-Octocat). Restart no longer
+  cold-fetches every image. Feed cards render a shimmer placeholder
+  (`aspect-[2/1]`) until the image loads (onLoad fades in, onError keeps the
+  placeholder).
+- **Feed state survives back-nav**: sort moved into the URL (`/feed?sort=`,
+  VALID_SORTS guard) so Back restores the tab; scroll position saved to
+  sessionStorage on repo-card click/pagehide and restored on return. RepoFeed
+  is wrapped in Suspense for useSearchParams.

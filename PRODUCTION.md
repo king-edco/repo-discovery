@@ -34,6 +34,8 @@ Copy `.env.example` → `.env.local` (dev) or your platform's env config
 |---|---|
 | `GITHUB_TOKEN` | GitHub PAT (`public_repo` scope) — <https://github.com/settings/tokens> |
 | `CURRENTS_API_KEY` | Optional, demand signals from news — <https://currentsapi.services/> |
+| `SCHEDULER_ENABLED` | Optional — `false` disables the internal ingestion scheduler (default on) |
+| `CORPUS_CAP` | Optional — max repos kept before eviction (default `50000`) |
 
 ### Optional services
 
@@ -86,7 +88,15 @@ pnpm start -p 3000
 ```
 
 Database tables, columns and search indexes are created automatically on
-first boot (idempotent). Then populate content:
+first boot (idempotent). **Content ingestion is self-driving**: an internal
+scheduler (started at server boot, `src/lib/scheduler.ts`) gradually ingests
+repos every ~30 min, targeting the topics your users actually pick (explore/
+exploit), pre-warming their OG preview images, and evicting low-value repos
+once the corpus passes `CORPUS_CAP` (default 50k). With only `GITHUB_TOKEN`
+set, the app feeds itself — no cron required on a single-instance deploy.
+
+Set `SCHEDULER_ENABLED=false` on all but one instance if you ever run
+multi-instance. For a one-time large backfill you can still run the CLI:
 
 ```bash
 pnpm ingest            # repos (needs GITHUB_TOKEN) — or ingest-bounded for a quick corpus
@@ -95,10 +105,9 @@ pnpm crawl-competitors # commercial competitors
 pnpm reindex-search    # only if you change the embedding model later
 ```
 
-Schedule with cron:
+Optional cron for the heavier jobs (the scheduler covers repo ingestion):
 
 ```cron
-0 3 * * *   cd /app && pnpm ingest >> /var/log/foundry-ingest.log 2>&1
 30 3 * * *  cd /app && pnpm ingest-demand >> /var/log/foundry-demand.log 2>&1
 0 9 * * *   cd /app && pnpm notify-digest >> /var/log/foundry-digest.log 2>&1
 ```

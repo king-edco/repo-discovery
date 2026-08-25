@@ -97,6 +97,12 @@ export function upsertRepoVector(repoId: string, vec: number[] | null): void {
   }
 }
 
+/** Remove a repo's vector from the vec0 index (used by eviction). */
+export function deleteRepoVector(repoId: string): void {
+  getSqlite().prepare("DELETE FROM repo_vectors WHERE repo_id = ?").run(repoId);
+}
+
+
 /** Upsert a demand signal's vector into the vec0 index. */
 export function upsertDemandVector(signalId: string, vec: number[] | null): void {
   const db = getSqlite();

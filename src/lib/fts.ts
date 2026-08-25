@@ -106,6 +106,12 @@ export function upsertRepoFts(
   ).run(repoId, fullName ?? "", description ?? "", readmeText ?? "");
 }
 
+/** Remove a repo from the FTS index (used by eviction). */
+export function deleteRepoFts(repoId: string): void {
+  getSqlite().prepare("DELETE FROM repos_fts WHERE id = ?").run(repoId);
+}
+
+
 /** Upsert a demand signal's text into the FTS index (delete + reinsert by id). */
 export function upsertDemandFts(
   signalId: string,
