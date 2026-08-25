@@ -1,5 +1,6 @@
 import { getEmbedder } from "@/lib/embeddings";
 import { searchRepos } from "@/lib/hybrid-search";
+import { requireUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +9,9 @@ export const dynamic = "force-dynamic";
 const MAX_QUERY_LEN = 300;
 
 export async function GET(request: Request) {
+  const { error } = await requireUser();
+  if (error) return error;
+
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q")?.trim();
 

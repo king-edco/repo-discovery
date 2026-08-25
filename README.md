@@ -28,6 +28,29 @@ The app runs at http://localhost:3000.
   Pass `--empty-only` to backfill only rows that have no embedding yet.
 - `pnpm verify-embeddings` â€” check that embeddings exist in the DB and that the
   generated vector dimension is 384 (multilingual-e5-small)
+- `pnpm notify-digest` Ñ create in-app notifications for users whose interests
+  match recently ingested repos (idempotent per day; run on a cron)
+
+## Accounts, plans & monetization
+
+- **Auth** Ñ Better Auth (email/password + optional GitHub/Google OAuth),
+  30-day cookie sessions, Drizzle adapter on the same SQLite file. Protected
+  routes resolve the user from the session Ñ no client-supplied user ids.
+  Set `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL`; OAuth needs the provider
+  client id/secret (see `.env.example`).
+- **Plans** Ñ `user.plan` is `free` or `pro`. Free: feed, search, plain
+  summaries, saved ideas. Pro unlocks cross-data insights: commercial
+  competitors, demand signals, commercial score, `sort=score`, and the AI
+  business pitch. Gating is enforced server-side in every API route.
+- **Billing** Ñ Stripe Checkout + webhook (`/api/billing/*`) flips `plan` to
+  `pro` on `checkout.session.completed`. Disabled (503) unless
+  `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRO_PRICE_ID` are set.
+- **Feedback forwarding** Ñ `/api/feedback` and repo-level feedback reasons are
+  emailed to `FEEDBACK_INBOX_EMAIL` via Resend (`RESEND_API_KEY`, `EMAIL_FROM`).
+- **Notifications** Ñ in-app notifications (`/api/notifications`, bell in the
+  feed header) + `pnpm notify-digest` for interest-based new-repo digests.
+- **Analytics** Ñ PostHog pageviews when `NEXT_PUBLIC_POSTHOG_KEY` is set
+  (the CSP `connect-src` is extended automatically); analytics-free otherwise.
 
 ## Ingestion
 

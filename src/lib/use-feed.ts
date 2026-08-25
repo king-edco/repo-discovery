@@ -89,7 +89,6 @@ export function useRepoFeed(
         location.origin,
       );
       if (sort === "recommend") {
-        url.searchParams.set("userId", "client");
         if (interestsKey) url.searchParams.set("interests", interestsKey);
         if (likedKey) url.searchParams.set("liked", likedKey);
         if (dislikedKey) url.searchParams.set("disliked", dislikedKey);

@@ -36,6 +36,10 @@ function createDb(): DB {
 
   const sqlite = new Database(DB_PATH);
   sqlite.pragma("journal_mode = WAL");
+  // Concurrent openers (e.g. Next.js page-data workers during `next build`)
+  // would otherwise fail instantly with SQLITE_BUSY while another process
+  // holds a write lock; wait briefly instead.
+  sqlite.pragma("busy_timeout = 5000");
   globalThis.__foundrySqlite = sqlite;
 
   const db = drizzle(sqlite, { schema });
@@ -125,6 +129,73 @@ function createDb(): DB {
       disliked_repo_ids TEXT NOT NULL DEFAULT '[]',
       updated_at TEXT NOT NULL
     );
+
+    -- Better Auth core tables (drizzle adapter, provider sqlite).
+    CREATE TABLE IF NOT EXISTS user (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE,
+      email_verified INTEGER NOT NULL DEFAULT 0,
+      image TEXT,
+      plan TEXT NOT NULL DEFAULT 'free',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS session (
+      id TEXT PRIMARY KEY,
+      expires_at INTEGER NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      ip_address TEXT,
+      user_agent TEXT,
+      user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS account (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
+      issuer TEXT,
+      user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+      access_token TEXT,
+      refresh_token TEXT,
+      id_token TEXT,
+      access_token_expires_at INTEGER,
+      refresh_token_expires_at INTEGER,
+      scope TEXT,
+      password TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS verification (
+      id TEXT PRIMARY KEY,
+      identifier TEXT NOT NULL,
+      value TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER,
+      updated_at INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT,
+      repo_id TEXT,
+      read INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, read);
+
+    CREATE TABLE IF NOT EXISTS saved_ideas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      repo_id TEXT NOT NULL,
+      note TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_saved_ideas_user_repo ON saved_ideas(user_id, repo_id);
   `);
 
   // Add the embedding column to pre-existing repos tables (no-op if present).
@@ -149,6 +220,16 @@ function createDb(): DB {
   const dsCols = sqlite.prepare("PRAGMA table_info(demand_signals)").all() as { name: string }[];
   if (!dsCols.some((c) => c.name === "embedding")) {
     sqlite.exec("ALTER TABLE demand_signals ADD COLUMN embedding TEXT;");
+  }
+  // Add the plan column to pre-existing user tables (no-op if present).
+  const userCols = sqlite.prepare("PRAGMA table_info(user)").all() as { name: string }[];
+  if (userCols.length > 0 && !userCols.some((c) => c.name === "plan")) {
+    sqlite.exec("ALTER TABLE user ADD COLUMN plan TEXT NOT NULL DEFAULT 'free';");
+  }
+  // Add the issuer column to pre-existing account tables (Better Auth 1.7).
+  const accountCols = sqlite.prepare("PRAGMA table_info(account)").all() as { name: string }[];
+  if (accountCols.length > 0 && !accountCols.some((c) => c.name === "issuer")) {
+    sqlite.exec("ALTER TABLE account ADD COLUMN issuer TEXT;");
   }
 
   // Vector + full-text search indexes (rebuildable projections of the

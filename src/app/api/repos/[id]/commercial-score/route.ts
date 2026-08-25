@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { repos } from "@/db/schema";
 import { computeCommercialScore } from "@/lib/hybrid-search";
+import { requireUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,10 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+
+  // The commercial score is derived from cross-data matching — Pro feature.
+  const { error } = await requireUser({ pro: true });
+  if (error) return error;
 
   const db = getDb();
   const repo = db

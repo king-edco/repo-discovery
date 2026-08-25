@@ -6,6 +6,7 @@ import { ArrowLeft, Settings as SettingsIcon, Sun, Moon, Star, Trash2, Tag, Chec
 import { useSettings, usePrefersDark, resolveDark } from "@/lib/settings";
 import { useInterests } from "@/lib/use-user";
 import { TOPICS } from "@/lib/topics";
+import { AccountSettings, FeedbackSettings } from "@/components/account-settings";
 
 /**
  * Unregister every service worker and drop all Cache Storage entries, forcing a
@@ -34,7 +35,7 @@ function useClearOfflineCache() {
       // images instead of serving the HTTP-cached (possibly stale) copies.
       const url = new URL(window.location.href);
       url.searchParams.set("nocache", String(Date.now()));
-      url.pathname = "/";
+      url.pathname = "/feed";
       window.location.href = url.toString();
     } catch {
       setState("error");
@@ -196,7 +197,7 @@ export default function SettingsPage() {
         <div className="mx-auto w-full max-w-2xl px-4 py-4">
           <div className="flex items-center gap-3">
             <Link
-              href="/"
+              href="/feed"
               className="inline-flex size-8 items-center justify-center rounded-full border border-input bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               aria-label="Retour"
             >
@@ -212,6 +213,8 @@ export default function SettingsPage() {
 
       <main className="mx-auto w-full max-w-2xl px-4 pb-20 pt-6">
         <div className="space-y-3">
+          <AccountSettings />
+          <FeedbackSettings />
           <div className="rounded-2xl border border-border bg-card p-5">
             <InterestsPicker />
           </div>

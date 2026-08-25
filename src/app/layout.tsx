@@ -1,9 +1,11 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
 import { ThemeScript } from "@/components/theme-script";
 import { ThemeApplier } from "@/components/theme-applier";
+import { PostHogProvider } from "@/components/posthog-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,8 +18,21 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Foundry",
-  description: "Foundry",
+  metadataBase: new URL(process.env.BETTER_AUTH_URL ?? "http://localhost:3000"),
+  title: {
+    default: "Foundry — Find your next business idea in open source",
+    template: "%s · Foundry",
+  },
+  description:
+    "Foundry scans GitHub, cross-matches repos against real market demand and commercial competitors, and scores every repo's business potential.",
+  keywords: [
+    "business ideas",
+    "open source opportunities",
+    "github trending",
+    "saas ideas",
+    "startup ideas",
+    "indie hackers",
+  ],
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
@@ -52,7 +67,9 @@ export default function RootLayout({
       </head>
       <body className="min-h-full flex flex-col">
         <ThemeApplier />
-        {children}
+        <Suspense fallback={null}>
+          <PostHogProvider>{children}</PostHogProvider>
+        </Suspense>
         <ServiceWorkerRegister />
       </body>
     </html>

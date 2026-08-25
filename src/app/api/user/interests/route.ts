@@ -1,24 +1,24 @@
 import { getInterests, setInterests } from "@/lib/recommendation";
-import { isValidUserId, parseJsonBody } from "@/lib/security";
+import { parseJsonBody } from "@/lib/security";
+import { requireUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
 const MAX_TOPICS = 50;
 const MAX_TOPIC_LEN = 64;
 
-export async function GET(request: Request) {
-  const userId = new URL(request.url).searchParams.get("userId");
-  if (!isValidUserId(userId)) {
-    return Response.json({ error: "valid userId required" }, { status: 400 });
-  }
-  return Response.json(getInterests(userId));
+// Interests belong to the signed-in user — the userId always comes from the
+// session, never from a client-supplied parameter.
+
+export async function GET() {
+  const { user, error } = await requireUser();
+  if (error) return error;
+  return Response.json(getInterests(user.id));
 }
 
 export async function POST(request: Request) {
-  const userId = new URL(request.url).searchParams.get("userId");
-  if (!isValidUserId(userId)) {
-    return Response.json({ error: "valid userId required" }, { status: 400 });
-  }
+  const { user, error } = await requireUser();
+  if (error) return error;
   const body = await parseJsonBody(request);
   if (body === null) {
     return Response.json({ error: "invalid JSON body" }, { status: 400 });
@@ -36,6 +36,6 @@ export async function POST(request: Request) {
         .filter((t) => t.length > 0),
     ),
   ].slice(0, MAX_TOPICS);
-  setInterests(userId, topics);
+  setInterests(user.id, topics);
   return Response.json({ ok: true, count: topics.length });
 }
