@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ExternalLink, MessageCircle, TrendingUp, SearchX } from "lucide-react";
 import type { DemandSignalMatch } from "@/lib/hybrid-search";
+import { safeExternalUrl } from "@/lib/security";
 
 // Source metadata: label + accent classes for the badge. Each demand source
 // gets a distinct color so the badge is recognizable at a glance.
@@ -45,10 +46,14 @@ function DemandSignalCard({ signal }: { signal: DemandSignalMatch }) {
   // Excerpt: prefer content, fall back to the (already-truncated) title.
   const excerpt = signal.content?.trim() || signal.title.trim();
 
+  // Sanitize: the URL comes from external (HN/SE/Currents) data — only render
+  // http(s) links so a hostile record can't smuggle a javascript: URL in.
+  const url = safeExternalUrl(signal.url);
+
   const host = (() => {
-    if (!signal.url) return null;
+    if (!url) return null;
     try {
-      return new URL(signal.url).host;
+      return new URL(url).host;
     } catch {
       return null;
     }
@@ -91,9 +96,9 @@ function DemandSignalCard({ signal }: { signal: DemandSignalMatch }) {
             {signal.num_comments}
           </span>
         ) : null}
-        {signal.url ? (
+        {url ? (
           <a
-            href={signal.url}
+            href={url}
             target="_blank"
             rel="noopener noreferrer"
             className="ml-auto inline-flex items-center gap-1 font-medium text-primary transition-colors hover:text-primary/80"

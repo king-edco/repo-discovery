@@ -7,8 +7,25 @@ const TTL = 60 * 60; // 1h
 
 // In-process cache of trimmed images. Upstream (githubassets) is flaky under
 // load, so memoizing the trimmed buffer per repo avoids re-hitting it on every
-// reload once we have a good copy.
+// reload once we have a good copy. The cache is BOUNDED: the path segment is
+// attacker-controlled, so an unbounded Map would let arbitrary repo names grow
+// resident memory without limit. Oldest entries are evicted (insertion order).
+const CACHE_MAX_ENTRIES = 200;
 const cache = new Map<string, Buffer>();
+
+function cacheSet(key: string, value: Buffer): void {
+  if (cache.has(key)) cache.delete(key); // refresh recency
+  cache.set(key, value);
+  while (cache.size > CACHE_MAX_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
+
+// GitHub owner/repo names: alphanumerics, hyphens, underscores, dots. Anything
+// else is junk that would only waste upstream fetches and cache entries.
+const NAME_RE = /^[A-Za-z0-9_.-]{1,100}$/;
 
 // When upstream can't resolve a repo (e.g. typo, private, rate-limited) it
 // silently returns this generic GitHub Octocat image instead of the repo's
@@ -37,7 +54,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/og/[...slug]
   // as one path segment, fail to resolve the repo, and fall back to GitHub's
   // generic Octocat image instead of the repo's real preview card.
   const [owner, repo, ...rest] = fullName.split("/");
-  if (!owner || !repo || rest.length > 0) {
+  if (!owner || !repo || rest.length > 0 || !NAME_RE.test(owner) || !NAME_RE.test(repo)) {
     return new Response("Bad repo path", { status: 400 });
   }
   const upstreamUrl = `${UPSTREAM}${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
@@ -100,7 +117,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/og/[...slug]
       .png()
       .toBuffer();
 
-    cache.set(fullName, trimmed);
+    cacheSet(fullName, trimmed);
     return new Response(new Uint8Array(trimmed), {
       headers: {
         "Content-Type": "image/png",

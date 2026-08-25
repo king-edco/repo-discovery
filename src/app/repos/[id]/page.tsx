@@ -11,6 +11,7 @@ import { RepoEnrichment, ReadmeToggle } from "@/components/repo-enrichment";
 import { FeedbackButtons } from "@/components/feedback-buttons";
 import { computeCommercialScore, findCompetitors, findRelatedDemandSignals } from "@/lib/hybrid-search";
 import { formatCount, langColor, parseTopics, previewImage } from "@/lib/format";
+import { safeExternalUrl } from "@/lib/security";
 
 export const dynamic = "force-dynamic";
 
@@ -169,7 +170,7 @@ export default async function RepoDetailPage({
         {/* View on GitHub link */}
         <div className="mt-6">
           <a
-            href={repo.url}
+            href={safeExternalUrl(repo.url) ?? "#"}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-5 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-accent"

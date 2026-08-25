@@ -1,5 +1,6 @@
 import { ExternalLink, Scale, Building2 } from "lucide-react";
 import type { CompetitorMatch } from "@/lib/hybrid-search";
+import { safeExternalUrl } from "@/lib/security";
 
 function MatchBadge({ matchedBy }: { matchedBy: CompetitorMatch["matchedBy"] }) {
   const meta = {
@@ -16,7 +17,9 @@ function MatchBadge({ matchedBy }: { matchedBy: CompetitorMatch["matchedBy"] }) 
 
 function CompetitorCard({ competitor }: { competitor: CompetitorMatch }) {
   const similarityPct = Math.round(competitor.similarity * 100);
-  const link = competitor.website || competitor.source_url;
+  // Sanitize: the website comes from external (Wikidata) data — only render
+  // http(s) links so a hostile record can't smuggle a javascript: URL in.
+  const link = safeExternalUrl(competitor.website) ?? safeExternalUrl(competitor.source_url);
   const host = (() => {
     if (!competitor.website) return null;
     try {

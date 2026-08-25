@@ -3,6 +3,10 @@ import { searchRepos } from "@/lib/hybrid-search";
 
 export const dynamic = "force-dynamic";
 
+// Every search runs a CPU-heavy ONNX embedding; cap the query length so a
+// single request can't amplify that cost arbitrarily.
+const MAX_QUERY_LEN = 300;
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q")?.trim();
@@ -10,6 +14,12 @@ export async function GET(request: Request) {
   if (!q) {
     return Response.json(
       { error: "Missing or empty 'q' query parameter." },
+      { status: 400 },
+    );
+  }
+  if (q.length > MAX_QUERY_LEN) {
+    return Response.json(
+      { error: `Query too long (max ${MAX_QUERY_LEN} characters).` },
       { status: 400 },
     );
   }

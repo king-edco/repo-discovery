@@ -3,6 +3,7 @@ import { getDb } from "@/db";
 import { repos } from "@/db/schema";
 import { computeCommercialScore, findCompetitors, findRelatedDemandSignals } from "@/lib/hybrid-search";
 import { generateEnrichment, enrichmentAvailable } from "@/lib/ai-enrichment";
+import { isAdminRequest } from "@/lib/security";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,17 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const force = new URL(request.url).searchParams.get("force") === "1";
+  // Force-regeneration spends paid Gemini quota and writes to the DB, so it
+  // requires the server-configured ENRICHMENT_ADMIN_KEY (x-admin-key header).
+  // Without it, `force` is rejected and only the cached/heuristic path runs.
+  const wantsForce = new URL(request.url).searchParams.get("force") === "1";
+  if (wantsForce && !isAdminRequest(request)) {
+    return Response.json(
+      { error: "force regeneration requires admin authorization." },
+      { status: 403 },
+    );
+  }
+  const force = wantsForce;
 
   const db = getDb();
   const repo = db
