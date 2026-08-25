@@ -204,20 +204,33 @@ export async function getRecommendations(params: RecommendationParams): Promise<
     }
   }
 
-  // 2c. Interest-topic matches via SQL (exact tag overlap).
-  const interestMatches = interests.length > 0
+  // 2c. Interest-topic matches via SQL (exact tag overlap). We check whether
+  // any of the interest tags literally match a repo's topic set — same guard
+  // as the feed's interestWhere. The KNN/semantic branches below catch
+  // broader matches (e.g. "music" → "audio").
+  // exactTagMatch is a JS-side guard so the SQL LIKE (which can over-match on
+  // substring tags like gamemaker→2d-game) doesn't leak non-matches in.
+  const exactMatch = (topicsJson: string | null, interestSet: Set<string>): boolean => {
+    const tags = parseTopics(topicsJson).map((t) => t.toLowerCase());
+    return tags.some((t) => interestSet.has(t));
+  };
+  const exactMatchFilter = exactMatch;
+  const rawInterestMatches = interests.length > 0
     ? db.select(REPO_SELECT).from(repos)
         .where(
           sql`(${sql.join(
-            interests.map((t) => sql`${repos.topics} LIKE ${'%"' + t.replace(/"/g, "").toLowerCase() + '"%'}`),
+            interests.map((t) => sql`${repos.topics} LIKE ${'%' + t.replace(/"/g, "").toLowerCase() + '%'}`),
             sql` OR `,
           )})`,
         )
         .orderBy(desc(repos.stars))
-        .limit(PROFILE_POOL_SIZE)
+        .limit(PROFILE_POOL_SIZE * 2) // fetch extra, then filter to exact
         .all()
     : [];
-  for (const r of interestMatches) byId.set(r.id, r as PoolRow);
+  const interestMatches = rawInterestMatches.filter((r) =>
+    exactMatchFilter(r.topics, interestSet),
+  );
+  for (const r of interestMatches.slice(0, PROFILE_POOL_SIZE)) byId.set(r.id, r as PoolRow);
 
   // Fetch any KNN ids not already in the pool.
   const knnIds = [...semanticScoreById.keys()].filter((id) => !byId.has(id));

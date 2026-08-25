@@ -18,7 +18,8 @@
     "reembed": "node --env-file-if-exists=.env.local --import tsx src/scripts/reembed.ts",
     "verify-embeddings": "node --env-file-if-exists=.env.local --import tsx src/scripts/verify-embeddings.ts",
     "crawl-competitors": "node --env-file-if-exists=.env.local --import tsx src/scripts/crawl-competitors.ts",
-    "notify-digest": "node --env-file-if-exists=.env.local --import tsx src/scripts/notify-digest.ts"
+    "notify-digest": "node --env-file-if-exists=.env.local --import tsx src/scripts/notify-digest.ts",
+    "og-backfill": "node --env-file-if-exists=.env.local --import tsx src/scripts/og-backfill.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

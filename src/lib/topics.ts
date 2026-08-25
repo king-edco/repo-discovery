@@ -5,8 +5,8 @@
 
 export const TOPICS: string[] = [
   // Games & entertainment
-  "chess",
   "game",
+  "chess",
   "game-engine",
   "emulator",
   "pixel-art",

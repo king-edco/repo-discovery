@@ -93,6 +93,10 @@ export function useRepoFeed(
         if (likedKey) url.searchParams.set("liked", likedKey);
         if (dislikedKey) url.searchParams.set("disliked", dislikedKey);
       } else {
+        // Stars/Potential also scope to interests so the tab ranks the user's
+        // interest-matched repos (e.g. top-starred game repos), not the
+        // global star leaderboard.
+        if (interestsKey) url.searchParams.set("interests", interestsKey);
         if (minStars > 0) url.searchParams.set("minStars", String(minStars));
         if (sort !== "stars") url.searchParams.set("sort", sort);
       }
